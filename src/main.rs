@@ -1,18 +1,27 @@
 use std::io::{Read as _, Write as _};
-use std::os::fd::{AsFd as _, AsRawFd as _};
+use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd as _};
+use std::os::unix::net::UnixListener;
 
 mod raw_guard;
 
-pub fn run(child: &mut std::process::Child, pty: &mut pty_process::blocking::Pty) {
+static MONITOR_FD: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+fn run(
+    listener: UnixListener,
+    child: &mut std::process::Child,
+    pty: &mut pty_process::blocking::Pty,
+) {
     let _raw = raw_guard::RawGuard::new();
     let mut buf = [0_u8; 4096];
     let pty_fd = pty.as_fd().as_raw_fd();
     let stdin_fd = std::io::stdin().as_raw_fd();
+    let listener_fd = listener.as_raw_fd();
 
     loop {
         let mut set = nix::sys::select::FdSet::new();
         set.insert(pty_fd);
         set.insert(stdin_fd);
+        set.insert(listener_fd);
         match nix::sys::select::select(None, Some(&mut set), None, None, None) {
             Ok(n) => {
                 if n > 0 {
@@ -43,6 +52,16 @@ pub fn run(child: &mut std::process::Child, pty: &mut pty_process::blocking::Pty
                             }
                         }
                     }
+                    if set.contains(listener_fd) {
+                        let (socket, _address) = listener.accept().expect("listener accept");
+                        let previous = MONITOR_FD.swap(
+                            socket.into_raw_fd(),
+                            std::sync::atomic::Ordering::Relaxed, /* FIXME: correct ordering? */
+                        );
+                        assert_eq!(previous, -1, "monitor already accepted");
+                        // listener.close().expect("listener close");
+                        // FIXME: unlink socket path after accept
+                    }
                 }
             }
             Err(e) => {
@@ -64,6 +83,15 @@ pub fn run(child: &mut std::process::Child, pty: &mut pty_process::blocking::Pty
 fn main() {
     use std::os::unix::process::ExitStatusExt as _;
 
+    match std::fs::remove_file("socket" /* FIXME: extract path */) {
+        Ok(()) => {}                                                     // carry on
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {} // carry on
+        Err(error) => panic!("remove socket file: {error:?}"),
+    }
+
+    let listener =
+        UnixListener::bind("socket" /* FIXME: extract path */).expect("bind unix listener");
+
     let mut pty = pty_process::blocking::Pty::new().unwrap();
     let pts = pty.pts().unwrap();
     pty.resize(pty_process::Size::new(24, 80)).unwrap();
@@ -72,7 +100,7 @@ fn main() {
     		"-kernel", "/Users/cpick/src/nix-kernel/result/bzImage",
     		"-initrd", "/Users/cpick/src/nix-init/initramfs-overlay-local.config.cpio",
     		"-nic", "user,hostfwd=tcp:127.0.0.1:2223-:22,hostfwd=udp:127.0.0.1:3333-:3333,hostfwd=udp:127.0.0.1:3332-:3332,",
-            "-chardev", "socket,id=mon0,host=127.0.0.1,port=4444,server=on,wait=off",
+            "-chardev", "socket,id=mon0,path=socket,server=off", // FIXME: extract path
             "-mon", "chardev=mon0",
     		"-nographic",
     		"-no-reboot",
@@ -80,9 +108,10 @@ fn main() {
         .spawn(&pts)
         .unwrap();
 
-    run(&mut child, &mut pty);
+    run(listener, &mut child, &mut pty);
 
     let status = child.wait().unwrap();
+    // FIXME: unlink socket path on exit
     std::process::exit(
         status
             .code()
