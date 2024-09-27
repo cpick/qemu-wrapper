@@ -1,11 +1,14 @@
-use nix::sys::signal::Signal::SIGINT;
+use nix::sys::signal::{
+    kill, raise, sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal::SIGINT,
+};
 use std::io::{Read as _, Write as _};
 use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd as _};
 use std::os::unix::net::UnixListener;
+use std::sync::atomic::{AtomicI32, Ordering::Relaxed};
 
 mod raw_guard;
 
-static MONITOR_FD: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+static MONITOR_FD: AtomicI32 = AtomicI32::new(-1);
 
 fn run(
     listener: UnixListener,
@@ -57,7 +60,7 @@ fn run(
                         let (socket, _address) = listener.accept().expect("listener accept");
                         let previous = MONITOR_FD.swap(
                             socket.into_raw_fd(),
-                            std::sync::atomic::Ordering::Relaxed, /* FIXME: correct ordering? */
+                            Relaxed, /* FIXME: correct ordering? */
                         );
                         assert_eq!(previous, -1, "monitor already accepted");
                         // listener.close().expect("listener close");
@@ -82,20 +85,21 @@ fn run(
     }
 }
 
+// called as a signal handler; must only call async-signal-safe functions
 extern "C" fn handler(signal: nix::libc::c_int) {
     let _length = nix::unistd::write(2, b"signal received\n").expect("write signal received");
+    let signal = signal.try_into().expect("signal try from i32");
 
-    if signal == SIGINT as i32 {
-        let monitor_fd = MONITOR_FD.swap(
-            -1,
-            std::sync::atomic::Ordering::Relaxed, /* FIXME: correct ordering? */
-        );
+    if signal == SIGINT {
+        let monitor_fd = MONITOR_FD.swap(-1, Relaxed /* FIXME: correct ordering? */);
         if monitor_fd != -1 {
             let _length = nix::unistd::write(2, b"sending system powerdown\n")
                 .expect("write sending system powerdown");
             let _length = nix::unistd::write(monitor_fd, b"system_powerdown\n")
                 .expect("write system powerdown");
+            // FIXME: carry on on (some kinds of?) failure
             // FIXME: close monitor_fd
+            return;
         }
     }
     // FIXME: kill
@@ -105,12 +109,12 @@ fn main() {
     use std::os::unix::process::ExitStatusExt as _;
 
     unsafe {
-        let _sigaction = nix::sys::signal::sigaction(
+        let _sigaction = sigaction(
             SIGINT,
-            &nix::sys::signal::SigAction::new(
-                nix::sys::signal::SigHandler::Handler(handler),
-                nix::sys::signal::SaFlags::empty(),
-                nix::sys::signal::SigSet::empty(),
+            &SigAction::new(
+                SigHandler::Handler(handler),
+                SaFlags::empty(),
+                SigSet::empty(),
             ),
         )
         .expect("SIGINT sigaction");
