@@ -69,8 +69,16 @@ fn main() {
     let mut pty = pty_process::blocking::Pty::new().unwrap();
     let pts = pty.pts().unwrap();
     pty.resize(pty_process::Size::new(24, 80)).unwrap();
-    let mut child = pty_process::blocking::Command::new("ls")
-        // .args(&["500"])
+    let mut child = pty_process::blocking::Command::new("qemu-system-x86_64")
+        .args(&[
+    		"-kernel", "/Users/cpick/src/nix-kernel/result/bzImage",
+    		"-initrd", "/Users/cpick/src/nix-init/initramfs-overlay-local.config.cpio",
+    		"-nic", "user,hostfwd=tcp:127.0.0.1:2223-:22,hostfwd=udp:127.0.0.1:3333-:3333,hostfwd=udp:127.0.0.1:3332-:3332,",
+            "-chardev", "socket,id=mon0,host=127.0.0.1,port=4444,server=on,wait=off",
+            "-mon", "chardev=mon0",
+    		"-nographic",
+    		"-no-reboot",
+        ])
         .spawn(&pts)
         .unwrap();
 
