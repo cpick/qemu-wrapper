@@ -1,14 +1,16 @@
 use nix::sys::signal::{
     kill, raise, sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal::SIGINT,
 };
+use nix::unistd::Pid;
 use std::io::{Read as _, Write as _};
 use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd as _};
 use std::os::unix::net::UnixListener;
-use std::sync::atomic::{AtomicI32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 
 mod raw_guard;
 
 static MONITOR_FD: AtomicI32 = AtomicI32::new(-1);
+static CHILD_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
 
 fn run(
     listener: UnixListener,
@@ -102,7 +104,32 @@ extern "C" fn handler(signal: nix::libc::c_int) {
             return;
         }
     }
-    // FIXME: kill
+
+    // FIXME: races with spawn()
+    {
+        let child_process_id = CHILD_PROCESS_ID.load(Relaxed);
+        if child_process_id > 0 {
+            let _length = nix::unistd::write(2, b"killing child process group\n")
+                .expect("write killing child process group");
+            kill(
+                Pid::from_raw(-(child_process_id as nix::libc::pid_t)),
+                signal,
+            )
+            .expect("kill child process group");
+            return;
+        }
+    }
+
+    let _length = nix::unistd::write(2, b"resetting handler and reraising signal\n")
+        .expect("resetting handler and reraising signal");
+    unsafe {
+        let _sigaction = sigaction(
+            signal,
+            &SigAction::new(SigHandler::SigDfl, SaFlags::empty(), SigSet::empty()),
+        )
+        .expect("SIGINT sigaction");
+    }
+    raise(signal).expect("raise signal");
 }
 
 fn main() {
@@ -144,6 +171,7 @@ fn main() {
         ])
         .spawn(&pts)
         .unwrap();
+    CHILD_PROCESS_ID.store(child.id(), Relaxed);
 
     run(listener, &mut child, &mut pty);
 
