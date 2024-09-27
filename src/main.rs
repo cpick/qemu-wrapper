@@ -1,3 +1,4 @@
+use nix::sys::signal::Signal::SIGINT;
 use std::io::{Read as _, Write as _};
 use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd as _};
 use std::os::unix::net::UnixListener;
@@ -64,8 +65,9 @@ fn run(
                     }
                 }
             }
-            Err(e) => {
-                println!("select failed: {e:?}");
+            Err(errno) if errno == nix::errno::Errno::EINTR => continue,
+            Err(errno) => {
+                println!("select failed: {errno:?}");
                 break;
             }
         }
@@ -80,8 +82,39 @@ fn run(
     }
 }
 
+extern "C" fn handler(signal: nix::libc::c_int) {
+    let _length = nix::unistd::write(2, b"signal received\n").expect("write signal received");
+
+    if signal == SIGINT as i32 {
+        let monitor_fd = MONITOR_FD.swap(
+            -1,
+            std::sync::atomic::Ordering::Relaxed, /* FIXME: correct ordering? */
+        );
+        if monitor_fd != -1 {
+            let _length = nix::unistd::write(2, b"sending system powerdown\n")
+                .expect("write sending system powerdown");
+            let _length = nix::unistd::write(monitor_fd, b"system_powerdown\n")
+                .expect("write system powerdown");
+            // FIXME: close monitor_fd
+        }
+    }
+    // FIXME: kill
+}
+
 fn main() {
     use std::os::unix::process::ExitStatusExt as _;
+
+    unsafe {
+        let _sigaction = nix::sys::signal::sigaction(
+            SIGINT,
+            &nix::sys::signal::SigAction::new(
+                nix::sys::signal::SigHandler::Handler(handler),
+                nix::sys::signal::SaFlags::empty(),
+                nix::sys::signal::SigSet::empty(),
+            ),
+        )
+        .expect("SIGINT sigaction");
+    }
 
     match std::fs::remove_file("socket" /* FIXME: extract path */) {
         Ok(()) => {}                                                     // carry on
