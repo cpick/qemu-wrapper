@@ -11,12 +11,9 @@ impl RawGuard {
         let termios = nix::sys::termios::tcgetattr(stdin).unwrap();
         let mut termios_raw = termios.clone();
         nix::sys::termios::cfmakeraw(&mut termios_raw);
-        nix::sys::termios::tcsetattr(
-            stdin,
-            nix::sys::termios::SetArg::TCSANOW,
-            &termios_raw,
-        )
-        .unwrap();
+        termios_raw.local_flags |= termios.local_flags & nix::sys::termios::LocalFlags::ISIG;
+        nix::sys::termios::tcsetattr(stdin, nix::sys::termios::SetArg::TCSANOW, &termios_raw)
+            .unwrap();
         Self { termios }
     }
 }
@@ -24,10 +21,7 @@ impl RawGuard {
 impl Drop for RawGuard {
     fn drop(&mut self) {
         let stdin = std::io::stdin().as_raw_fd();
-        let _ = nix::sys::termios::tcsetattr(
-            stdin,
-            nix::sys::termios::SetArg::TCSANOW,
-            &self.termios,
-        );
+        let _ =
+            nix::sys::termios::tcsetattr(stdin, nix::sys::termios::SetArg::TCSANOW, &self.termios);
     }
 }
