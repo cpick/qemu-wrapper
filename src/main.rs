@@ -148,14 +148,15 @@ fn main() {
         .expect("SIGINT sigaction");
     }
 
-    match std::fs::remove_file("socket" /* FIXME: extract path */) {
+    let socket_path = format!("monitor-{}.sock", std::process::id());
+
+    match std::fs::remove_file(&socket_path) {
         Ok(()) => {}                                                     // carry on
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {} // carry on
         Err(error) => panic!("remove socket file: {error:?}"),
     }
 
-    let listener =
-        UnixListener::bind("socket" /* FIXME: extract path */).expect("bind unix listener");
+    let listener = UnixListener::bind(&socket_path).expect("bind unix listener");
 
     let mut pty = pty_process::blocking::Pty::new().unwrap();
     let pts = pty.pts().unwrap();
@@ -166,7 +167,7 @@ fn main() {
     		"-kernel", "/Users/cpick/src/nix-kernel/result/bzImage",
     		"-initrd", "/Users/cpick/src/nix-init/initramfs-overlay-local.config.cpio",
     		"-nic", "user,hostfwd=tcp:127.0.0.1:2223-:22,hostfwd=udp:127.0.0.1:3333-:3333,hostfwd=udp:127.0.0.1:3332-:3332,",
-            "-chardev", "socket,id=mon0,path=socket,server=off", // FIXME: extract path
+            "-chardev", &format!("socket,id=mon0,path={socket_path},server=off"),
             "-mon", "chardev=mon0",
     		"-nographic",
     		"-no-reboot",
