@@ -73,7 +73,7 @@ fn run(
             }
             Err(errno) if errno == nix::errno::Errno::EINTR => continue,
             Err(errno) => {
-                println!("select failed: {errno:?}");
+                eprintln!("select failed: {errno:?}");
                 break;
             }
         }
@@ -81,7 +81,7 @@ fn run(
             Ok(Some(_)) => break,
             Ok(None) => {}
             Err(e) => {
-                println!("wait failed: {e:?}");
+                eprintln!("wait failed: {e:?}");
                 break;
             }
         }
@@ -192,6 +192,7 @@ fn main() {
 
     let status = child.wait().unwrap();
     // FIXME: unlink socket path on exit
+    eprintln!("exit()ing with status: {status}");
     std::process::exit(
         status
             .code()
