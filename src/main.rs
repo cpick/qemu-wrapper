@@ -1,5 +1,6 @@
 use nix::sys::signal::{
-    kill, raise, sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal::SIGINT,
+    kill, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow,
+    Signal::SIGINT,
 };
 use nix::unistd::Pid;
 use std::io::{Read as _, Write as _};
@@ -105,7 +106,7 @@ extern "C" fn handler(signal: nix::libc::c_int) {
         }
     }
 
-    // FIXME: races with spawn()
+    // sigprocmask() around spawn() and store() prevent race on CHILD_PROCESS_ID
     {
         let child_process_id = CHILD_PROCESS_ID.load(Relaxed);
         if child_process_id > 0 {
@@ -159,8 +160,9 @@ fn main() {
     let mut pty = pty_process::blocking::Pty::new().unwrap();
     let pts = pty.pts().unwrap();
     pty.resize(pty_process::Size::new(24, 80)).unwrap();
-    let mut child = pty_process::blocking::Command::new("qemu-system-x86_64")
-        .args(&[
+
+    let mut command = pty_process::blocking::Command::new("qemu-system-x86_64");
+    command.args(&[
     		"-kernel", "/Users/cpick/src/nix-kernel/result/bzImage",
     		"-initrd", "/Users/cpick/src/nix-init/initramfs-overlay-local.config.cpio",
     		"-nic", "user,hostfwd=tcp:127.0.0.1:2223-:22,hostfwd=udp:127.0.0.1:3333-:3333,hostfwd=udp:127.0.0.1:3332-:3332,",
@@ -168,10 +170,23 @@ fn main() {
             "-mon", "chardev=mon0",
     		"-nographic",
     		"-no-reboot",
-        ])
-        .spawn(&pts)
-        .unwrap();
+        ]);
+
+    // prevent race between the signal handler and setting CHILD_PROCESS_ID
+    let mut block = SigSet::empty();
+    block.add(SIGINT /* FIXME: extract to variable */);
+    let mut previous = SigSet::empty();
+    sigprocmask(SigmaskHow::SIG_BLOCK, Some(&block), Some(&mut previous))
+        .expect("block sigprocmask");
+    unsafe {
+        command.pre_exec(move || {
+            sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)
+                .map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
+        });
+    }
+    let mut child = command.spawn(&pts).expect("spawn command");
     CHILD_PROCESS_ID.store(child.id(), Relaxed);
+    sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None).expect("unblock sigprocmask");
 
     run(listener, &mut child, &mut pty);
 
