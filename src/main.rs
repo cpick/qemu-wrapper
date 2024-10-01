@@ -1,11 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use nix::sys::signal::{
     kill, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal,
 };
-use nix::unistd::Pid;
+use nix::unistd::{close, Pid};
 use std::io::{Read as _, Write as _};
 use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd as _};
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 
 mod raw_guard;
@@ -13,81 +13,6 @@ mod raw_guard;
 const POWEROFF_SIGNAL: Signal = Signal::SIGINT; // TODO: make configurable?
 static MONITOR_FD: AtomicI32 = AtomicI32::new(-1);
 static CHILD_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
-
-fn run(
-    listener: UnixListener,
-    child: &mut std::process::Child,
-    pty: &mut pty_process::blocking::Pty,
-) {
-    let _raw = raw_guard::RawGuard::new();
-    let mut buf = [0_u8; 4096];
-    let pty_fd = pty.as_fd().as_raw_fd();
-    let stdin_fd = std::io::stdin().as_raw_fd();
-    let listener_fd = listener.as_raw_fd();
-
-    loop {
-        let mut set = nix::sys::select::FdSet::new();
-        set.insert(pty_fd);
-        set.insert(stdin_fd);
-        set.insert(listener_fd);
-        match nix::sys::select::select(None, Some(&mut set), None, None, None) {
-            Ok(n) => {
-                if n > 0 {
-                    if set.contains(pty_fd) {
-                        match pty.read(&mut buf) {
-                            Ok(bytes) => {
-                                let buf = &buf[..bytes];
-                                let stdout = std::io::stdout();
-                                let mut stdout = stdout.lock();
-                                stdout.write_all(buf).unwrap();
-                                stdout.flush().unwrap();
-                            }
-                            Err(e) => {
-                                eprintln!("pty read failed: {e:?}");
-                                break;
-                            }
-                        };
-                    }
-                    if set.contains(stdin_fd) {
-                        match std::io::stdin().read(&mut buf) {
-                            Ok(bytes) => {
-                                let buf = &buf[..bytes];
-                                pty.write_all(buf).unwrap();
-                            }
-                            Err(e) => {
-                                eprintln!("stdin read failed: {e:?}");
-                                break;
-                            }
-                        }
-                    }
-                    if set.contains(listener_fd) {
-                        let (socket, _address) = listener.accept().expect("listener accept");
-                        let previous = MONITOR_FD.swap(
-                            socket.into_raw_fd(),
-                            Relaxed, /* FIXME: correct ordering? */
-                        );
-                        assert_eq!(previous, -1, "monitor already accepted");
-                        // listener.close().expect("listener close");
-                        // FIXME: unlink socket path after accept
-                    }
-                }
-            }
-            Err(errno) if errno == nix::errno::Errno::EINTR => continue,
-            Err(errno) => {
-                eprintln!("select failed: {errno:?}");
-                break;
-            }
-        }
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {}
-            Err(e) => {
-                eprintln!("wait failed: {e:?}");
-                break;
-            }
-        }
-    }
-}
 
 // called as a signal handler; must only call async-signal-safe functions
 extern "C" fn signal_handler(signal: nix::libc::c_int) {
@@ -101,8 +26,8 @@ extern "C" fn signal_handler(signal: nix::libc::c_int) {
                 .expect("write sending system powerdown");
             let _length = nix::unistd::write(monitor_fd, b"system_powerdown\n")
                 .expect("write system powerdown");
+            close(monitor_fd).expect("close monitor");
             // FIXME: carry on on (some kinds of?) failure
-            // FIXME: close monitor_fd
             return;
         }
     }
@@ -157,20 +82,136 @@ fn handle_signals() -> Result<SigSet> {
     Ok(handled)
 }
 
+struct MonitorListener {
+    path: String,
+    listener: UnixListener,
+}
+
+impl MonitorListener {
+    fn new() -> Result<Self> {
+        let path = format!("monitor-{}.sock", std::process::id());
+
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}                                                     // carry on
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {} // carry on
+            Err(error) => bail!("remove socket file '{path}': {error:?}"),
+        }
+
+        let listener = UnixListener::bind(&path).context("bind unix listener")?;
+
+        Ok(Self { path, listener })
+    }
+
+    fn path(&self) -> &str {
+        &self.path
+    }
+
+    fn raw_fd(&self) -> i32 {
+        self.listener.as_raw_fd()
+    }
+
+    fn accept(self) -> Result<UnixStream> {
+        let (socket, _address) = self.listener.accept().context("listener accept")?;
+        Ok(socket)
+    }
+}
+
+impl Drop for MonitorListener {
+    fn drop(&mut self) {
+        let path = self.path();
+        if let Err(error) = std::fs::remove_file(path) {
+            eprintln!("remove file '{path}': {error:?}");
+        }
+    }
+}
+
+fn run(
+    listener: MonitorListener,
+    child: &mut std::process::Child,
+    pty: &mut pty_process::blocking::Pty,
+) {
+    let _raw = raw_guard::RawGuard::new();
+    let mut buf = [0_u8; 4096];
+    let pty_fd = pty.as_fd().as_raw_fd();
+    let stdin_fd = std::io::stdin().as_raw_fd();
+    let mut listener = Some(listener);
+
+    loop {
+        let mut set = nix::sys::select::FdSet::new();
+        set.insert(pty_fd);
+        set.insert(stdin_fd);
+        if let Some(ref listener) = listener {
+            set.insert(listener.raw_fd());
+        }
+        match nix::sys::select::select(None, Some(&mut set), None, None, None) {
+            Ok(n) => {
+                if n > 0 {
+                    if set.contains(pty_fd) {
+                        match pty.read(&mut buf) {
+                            Ok(bytes) => {
+                                let buf = &buf[..bytes];
+                                let stdout = std::io::stdout();
+                                let mut stdout = stdout.lock();
+                                stdout.write_all(buf).unwrap();
+                                stdout.flush().unwrap();
+                            }
+                            Err(e) => {
+                                eprintln!("pty read failed: {e:?}");
+                                break;
+                            }
+                        };
+                    }
+                    if set.contains(stdin_fd) {
+                        match std::io::stdin().read(&mut buf) {
+                            Ok(bytes) => {
+                                let buf = &buf[..bytes];
+                                pty.write_all(buf).unwrap();
+                            }
+                            Err(e) => {
+                                eprintln!("stdin read failed: {e:?}");
+                                break;
+                            }
+                        }
+                    }
+                    // TODO: so ugly
+                    if let Some(l) = listener {
+                        listener = if set.contains(l.raw_fd()) {
+                            let monitor = l.accept().expect("monitor accept");
+                            let previous = MONITOR_FD.swap(
+                                monitor.into_raw_fd(),
+                                Relaxed, /* FIXME: correct ordering? */
+                            );
+                            assert_eq!(previous, -1, "monitor already accepted");
+                            None
+                        } else {
+                            Some(l)
+                        };
+                    }
+                }
+            }
+            Err(errno) if errno == nix::errno::Errno::EINTR => continue,
+            Err(errno) => {
+                eprintln!("select failed: {errno:?}");
+                break;
+            }
+        }
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("wait failed: {e:?}");
+                break;
+            }
+        }
+    }
+}
+
 fn main() {
     use std::os::unix::process::ExitStatusExt as _;
 
     let handled = handle_signals().expect("handle signals");
 
-    let socket_path = format!("monitor-{}.sock", std::process::id());
-
-    match std::fs::remove_file(&socket_path) {
-        Ok(()) => {}                                                     // carry on
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {} // carry on
-        Err(error) => panic!("remove socket file: {error:?}"),
-    }
-
-    let listener = UnixListener::bind(&socket_path).expect("bind unix listener");
+    let listener = MonitorListener::new().expect("monitor socket");
 
     let mut pty = pty_process::blocking::Pty::new().unwrap();
     let pts = pty.pts().unwrap();
@@ -180,7 +221,7 @@ fn main() {
     command.args(
         [
             "-chardev".to_owned(),
-            format!("socket,id=mon0,path={socket_path},server=off"),
+            format!("socket,id=mon0,path={},server=off", listener.path()),
             "-mon".to_owned(),
             "chardev=mon0".to_owned(),
         ]
@@ -205,7 +246,6 @@ fn main() {
     run(listener, &mut child, &mut pty);
 
     let status = child.wait().unwrap();
-    // FIXME: unlink socket path on exit
     eprintln!("exit()ing with status: {status}");
     std::process::exit(
         status
