@@ -127,6 +127,54 @@ impl Drop for MonitorListener {
     }
 }
 
+fn spawn_qemu_child(
+    arguments: std::env::Args,
+    handled: SigSet,
+    listener_path: &str,
+) -> Result<(Pty, Child)> {
+    let pty = pty_process::blocking::Pty::new().context("new pty")?;
+    let pts = pty.pts().context("pty pts")?;
+    pty.resize(
+        pty_process::Size::new(24, 80), /* FIXME: query from parent terminal */
+    )
+    .context("resize ptpy")?;
+
+    let mut command = pty_process::blocking::Command::new("qemu-system-x86_64");
+    command.args(
+        [
+            "-chardev".to_owned(),
+            format!("socket,id=mon0,path={},server=off", listener_path),
+            "-mon".to_owned(),
+            "chardev=mon0".to_owned(),
+        ]
+        .into_iter()
+        .chain(arguments),
+    );
+
+    // prevent race between the signal handler and setting CHILD_PROCESS_ID
+    let child = {
+        let mut previous = SigSet::empty();
+        sigprocmask(SigmaskHow::SIG_BLOCK, Some(&handled), Some(&mut previous))
+            .context("block sigprocmask")?;
+
+        unsafe {
+            command.pre_exec(move || {
+                sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)
+                    .map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
+            });
+        }
+        let child = command.spawn(&pts).context("spawn command")?;
+        CHILD_PROCESS_ID.store(child.id(), Relaxed);
+
+        sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)
+            .context("unblock sigprocmask")?;
+
+        child
+    };
+
+    Ok((pty, child))
+}
+
 fn run(listener: MonitorListener, child: &mut Child, pty: &mut Pty) {
     let _raw = raw_guard::RawGuard::new();
     let mut buf = [0_u8; 4096];
@@ -207,36 +255,8 @@ fn run(listener: MonitorListener, child: &mut Child, pty: &mut Pty) {
 fn main() {
     let handled = handle_signals().expect("handle signals");
     let listener = MonitorListener::new().expect("monitor socket");
-
-    let mut pty = pty_process::blocking::Pty::new().unwrap();
-    let pts = pty.pts().unwrap();
-    pty.resize(pty_process::Size::new(24, 80)).unwrap();
-
-    let mut command = pty_process::blocking::Command::new("qemu-system-x86_64");
-    command.args(
-        [
-            "-chardev".to_owned(),
-            format!("socket,id=mon0,path={},server=off", listener.path()),
-            "-mon".to_owned(),
-            "chardev=mon0".to_owned(),
-        ]
-        .into_iter()
-        .chain(std::env::args()),
-    );
-
-    // prevent race between the signal handler and setting CHILD_PROCESS_ID
-    let mut previous = SigSet::empty();
-    sigprocmask(SigmaskHow::SIG_BLOCK, Some(&handled), Some(&mut previous))
-        .expect("block sigprocmask");
-    unsafe {
-        command.pre_exec(move || {
-            sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)
-                .map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
-        });
-    }
-    let mut child = command.spawn(&pts).expect("spawn command");
-    CHILD_PROCESS_ID.store(child.id(), Relaxed);
-    sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None).expect("unblock sigprocmask");
+    let (mut pty, mut child) =
+        spawn_qemu_child(std::env::args(), handled, listener.path()).expect("spawn qemu");
 
     run(listener, &mut child, &mut pty);
 
