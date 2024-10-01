@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use nix::sys::signal::{
     kill, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal,
 };
-use nix::unistd::{close, Pid};
+use nix::unistd::{close, write, Pid};
 use std::io::{Read as _, Write as _};
 use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd as _};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -16,16 +16,15 @@ static CHILD_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
 
 // called as a signal handler; must only call async-signal-safe functions
 extern "C" fn signal_handler(signal: nix::libc::c_int) {
-    let _length = nix::unistd::write(2, b"signal received\n").expect("write signal received");
+    let _length = write(2, b"signal received\n").expect("write signal received");
     let signal = signal.try_into().expect("signal try from i32");
 
     if signal == POWEROFF_SIGNAL {
         let monitor_fd = MONITOR_FD.swap(-1, Relaxed /* FIXME: correct ordering? */);
         if monitor_fd != -1 {
-            let _length = nix::unistd::write(2, b"sending system powerdown\n")
-                .expect("write sending system powerdown");
-            let _length = nix::unistd::write(monitor_fd, b"system_powerdown\n")
-                .expect("write system powerdown");
+            let _length =
+                write(2, b"sending system powerdown\n").expect("write sending system powerdown");
+            let _length = write(monitor_fd, b"system_powerdown\n").expect("write system powerdown");
             close(monitor_fd).expect("close monitor");
             // FIXME: carry on on (some kinds of?) failure
             return;
@@ -36,7 +35,7 @@ extern "C" fn signal_handler(signal: nix::libc::c_int) {
     {
         let child_process_id = CHILD_PROCESS_ID.load(Relaxed);
         if child_process_id > 0 {
-            let _length = nix::unistd::write(2, b"killing child process group\n")
+            let _length = write(2, b"killing child process group\n")
                 .expect("write killing child process group");
             kill(
                 Pid::from_raw(-(child_process_id as nix::libc::pid_t)),
@@ -47,7 +46,7 @@ extern "C" fn signal_handler(signal: nix::libc::c_int) {
         }
     }
 
-    let _length = nix::unistd::write(2, b"resetting handler and reraising signal\n")
+    let _length = write(2, b"resetting handler and reraising signal\n")
         .expect("resetting handler and reraising signal");
     unsafe {
         let _sigaction = sigaction(
