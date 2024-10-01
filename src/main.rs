@@ -3,9 +3,12 @@ use nix::sys::signal::{
     kill, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal,
 };
 use nix::unistd::{close, write, Pid};
+use pty_process::blocking::Pty;
 use std::io::{Read as _, Write as _};
 use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd as _};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::process::ExitStatusExt as _;
+use std::process::{exit, id, Child};
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 
 mod raw_guard;
@@ -88,7 +91,7 @@ struct MonitorListener {
 
 impl MonitorListener {
     fn new() -> Result<Self> {
-        let path = format!("monitor-{}.sock", std::process::id());
+        let path = format!("monitor-{}.sock", id());
 
         match std::fs::remove_file(&path) {
             Ok(()) => {}                                                     // carry on
@@ -124,11 +127,7 @@ impl Drop for MonitorListener {
     }
 }
 
-fn run(
-    listener: MonitorListener,
-    child: &mut std::process::Child,
-    pty: &mut pty_process::blocking::Pty,
-) {
+fn run(listener: MonitorListener, child: &mut Child, pty: &mut Pty) {
     let _raw = raw_guard::RawGuard::new();
     let mut buf = [0_u8; 4096];
     let pty_fd = pty.as_fd().as_raw_fd();
@@ -206,10 +205,7 @@ fn run(
 }
 
 fn main() {
-    use std::os::unix::process::ExitStatusExt as _;
-
     let handled = handle_signals().expect("handle signals");
-
     let listener = MonitorListener::new().expect("monitor socket");
 
     let mut pty = pty_process::blocking::Pty::new().unwrap();
@@ -246,7 +242,7 @@ fn main() {
 
     let status = child.wait().unwrap();
     eprintln!("exit()ing with status: {status}");
-    std::process::exit(
+    exit(
         status
             .code()
             .unwrap_or_else(|| status.signal().unwrap_or(0) + 128),
