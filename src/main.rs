@@ -1,6 +1,5 @@
 use nix::sys::signal::{
-    kill, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow,
-    Signal::SIGINT,
+    kill, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal,
 };
 use nix::unistd::Pid;
 use std::io::{Read as _, Write as _};
@@ -10,6 +9,7 @@ use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 
 mod raw_guard;
 
+const POWEROFF_SIGNAL: Signal = Signal::SIGINT;
 static MONITOR_FD: AtomicI32 = AtomicI32::new(-1);
 static CHILD_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
 
@@ -93,7 +93,7 @@ extern "C" fn handler(signal: nix::libc::c_int) {
     let _length = nix::unistd::write(2, b"signal received\n").expect("write signal received");
     let signal = signal.try_into().expect("signal try from i32");
 
-    if signal == SIGINT {
+    if signal == POWEROFF_SIGNAL {
         let monitor_fd = MONITOR_FD.swap(-1, Relaxed /* FIXME: correct ordering? */);
         if monitor_fd != -1 {
             let _length = nix::unistd::write(2, b"sending system powerdown\n")
@@ -128,7 +128,7 @@ extern "C" fn handler(signal: nix::libc::c_int) {
             signal,
             &SigAction::new(SigHandler::SigDfl, SaFlags::empty(), SigSet::empty()),
         )
-        .expect("SIGINT sigaction");
+        .expect("default sigaction");
     }
     raise(signal).expect("raise signal");
 }
@@ -138,14 +138,14 @@ fn main() {
 
     unsafe {
         let _sigaction = sigaction(
-            SIGINT,
+            POWEROFF_SIGNAL,
             &SigAction::new(
                 SigHandler::Handler(handler),
                 SaFlags::empty(),
                 SigSet::empty(),
             ),
         )
-        .expect("SIGINT sigaction");
+        .expect("poweroff sigaction");
     }
 
     let socket_path = format!("monitor-{}.sock", std::process::id());
@@ -175,7 +175,7 @@ fn main() {
 
     // prevent race between the signal handler and setting CHILD_PROCESS_ID
     let mut block = SigSet::empty();
-    block.add(SIGINT /* FIXME: extract to variable */);
+    block.add(POWEROFF_SIGNAL);
     let mut previous = SigSet::empty();
     sigprocmask(SigmaskHow::SIG_BLOCK, Some(&block), Some(&mut previous))
         .expect("block sigprocmask");
