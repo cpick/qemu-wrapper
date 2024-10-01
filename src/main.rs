@@ -1,3 +1,4 @@
+use anyhow::{Context, Result};
 use nix::sys::signal::{
     kill, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal,
 };
@@ -89,7 +90,7 @@ fn run(
 }
 
 // called as a signal handler; must only call async-signal-safe functions
-extern "C" fn handler(signal: nix::libc::c_int) {
+extern "C" fn signal_handler(signal: nix::libc::c_int) {
     let _length = nix::unistd::write(2, b"signal received\n").expect("write signal received");
     let signal = signal.try_into().expect("signal try from i32");
 
@@ -133,27 +134,33 @@ extern "C" fn handler(signal: nix::libc::c_int) {
     raise(signal).expect("raise signal");
 }
 
+fn handle_signals() -> Result<SigSet> {
+    let mut handled = SigSet::empty();
+    let action = SigAction::new(
+        SigHandler::Handler(signal_handler),
+        SaFlags::empty(),
+        SigSet::empty(),
+    );
+
+    // TODO: handle realtime signals between SIGRTMIN and SIGRTMAX?
+    for signal in Signal::iterator().filter(|signal| match signal {
+        Signal::SIGKILL | Signal::SIGSTOP // unactionable
+        | Signal::SIGSEGV | Signal::SIGBUS // rust's stack overflow reporter
+        => false,
+        _ => true,
+    }) {
+        let _action =
+            unsafe { sigaction(signal, &action) }.with_context(|| format!("{signal} sigaction"))?;
+        handled.add(signal);
+    }
+
+    Ok(handled)
+}
+
 fn main() {
     use std::os::unix::process::ExitStatusExt as _;
 
-    let mut handled = SigSet::empty();
-    {
-        let action = SigAction::new(
-            SigHandler::Handler(handler),
-            SaFlags::empty(),
-            SigSet::empty(),
-        );
-        // TODO: handle realtime signals between SIGRTMIN and SIGRTMAX?
-        for signal in Signal::iterator().filter(|signal| match signal {
-            Signal::SIGKILL | Signal::SIGSTOP // unactionable
-            | Signal::SIGSEGV | Signal::SIGBUS // rust's stack overflow reporter
-            => false,
-            _ => true,
-        }) {
-            let _action = unsafe { sigaction(signal, &action).expect("sigaction") };
-            handled.add(signal);
-        }
-    }
+    let handled = handle_signals().expect("handle signals");
 
     let socket_path = format!("monitor-{}.sock", std::process::id());
 
