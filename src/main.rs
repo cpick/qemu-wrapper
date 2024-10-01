@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 
 mod raw_guard;
 
-const POWEROFF_SIGNAL: Signal = Signal::SIGINT;
+const POWEROFF_SIGNAL: Signal = Signal::SIGINT; // TODO: make configurable?
 static MONITOR_FD: AtomicI32 = AtomicI32::new(-1);
 static CHILD_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
 
@@ -136,16 +136,23 @@ extern "C" fn handler(signal: nix::libc::c_int) {
 fn main() {
     use std::os::unix::process::ExitStatusExt as _;
 
-    unsafe {
-        let _sigaction = sigaction(
-            POWEROFF_SIGNAL,
-            &SigAction::new(
-                SigHandler::Handler(handler),
-                SaFlags::empty(),
-                SigSet::empty(),
-            ),
-        )
-        .expect("poweroff sigaction");
+    let mut handled = SigSet::empty();
+    {
+        let action = SigAction::new(
+            SigHandler::Handler(handler),
+            SaFlags::empty(),
+            SigSet::empty(),
+        );
+        // TODO: handle realtime signals between SIGRTMIN and SIGRTMAX?
+        for signal in Signal::iterator().filter(|signal| match signal {
+            Signal::SIGKILL | Signal::SIGSTOP // unactionable
+            | Signal::SIGSEGV | Signal::SIGBUS // rust's stack overflow reporter
+            => false,
+            _ => true,
+        }) {
+            let _action = unsafe { sigaction(signal, &action).expect("sigaction") };
+            handled.add(signal);
+        }
     }
 
     let socket_path = format!("monitor-{}.sock", std::process::id());
@@ -175,10 +182,8 @@ fn main() {
     );
 
     // prevent race between the signal handler and setting CHILD_PROCESS_ID
-    let mut block = SigSet::empty();
-    block.add(POWEROFF_SIGNAL);
     let mut previous = SigSet::empty();
-    sigprocmask(SigmaskHow::SIG_BLOCK, Some(&block), Some(&mut previous))
+    sigprocmask(SigmaskHow::SIG_BLOCK, Some(&handled), Some(&mut previous))
         .expect("block sigprocmask");
     unsafe {
         command.pre_exec(move || {
