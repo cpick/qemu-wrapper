@@ -163,15 +163,16 @@ fn main() {
     pty.resize(pty_process::Size::new(24, 80)).unwrap();
 
     let mut command = pty_process::blocking::Command::new("qemu-system-x86_64");
-    command.args(&[
-    		"-kernel", "/Users/cpick/src/nix-kernel/result/bzImage",
-    		"-initrd", "/Users/cpick/src/nix-init/initramfs-overlay-local.config.cpio",
-    		"-nic", "user,hostfwd=tcp:127.0.0.1:2223-:22,hostfwd=udp:127.0.0.1:3333-:3333,hostfwd=udp:127.0.0.1:3332-:3332,",
-            "-chardev", &format!("socket,id=mon0,path={socket_path},server=off"),
-            "-mon", "chardev=mon0",
-    		"-nographic",
-    		"-no-reboot",
-        ]);
+    command.args(
+        [
+            "-chardev".to_owned(),
+            format!("socket,id=mon0,path={socket_path},server=off"),
+            "-mon".to_owned(),
+            "chardev=mon0".to_owned(),
+        ]
+        .into_iter()
+        .chain(std::env::args()),
+    );
 
     // prevent race between the signal handler and setting CHILD_PROCESS_ID
     let mut block = SigSet::empty();
