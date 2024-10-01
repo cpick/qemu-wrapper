@@ -8,7 +8,7 @@ use std::io::{Read as _, Write as _};
 use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd as _};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::ExitStatusExt as _;
-use std::process::{exit, id, Child};
+use std::process::{exit, id, Child, ExitStatus};
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 
 mod raw_guard;
@@ -175,7 +175,7 @@ fn spawn_qemu_child(
     Ok((pty, child))
 }
 
-fn run(listener: MonitorListener, child: &mut Child, pty: &mut Pty) {
+fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<ExitStatus> {
     let _raw = raw_guard::RawGuard::new();
     let mut buf = [0_u8; 4096];
     let pty_fd = pty.as_fd().as_raw_fd();
@@ -193,36 +193,22 @@ fn run(listener: MonitorListener, child: &mut Child, pty: &mut Pty) {
             Ok(n) => {
                 if n > 0 {
                     if set.contains(pty_fd) {
-                        match pty.read(&mut buf) {
-                            Ok(bytes) => {
-                                let buf = &buf[..bytes];
-                                let stdout = std::io::stdout();
-                                let mut stdout = stdout.lock();
-                                stdout.write_all(buf).unwrap();
-                                stdout.flush().unwrap();
-                            }
-                            Err(e) => {
-                                eprintln!("pty read failed: {e:?}");
-                                break;
-                            }
-                        };
+                        let bytes = pty.read(&mut buf).context("read pty")?;
+                        let buf = &buf[..bytes];
+                        let stdout = std::io::stdout();
+                        let mut stdout = stdout.lock();
+                        stdout.write_all(buf).context("write all stdout")?;
+                        stdout.flush().context("flush stdout")?;
                     }
                     if set.contains(stdin_fd) {
-                        match std::io::stdin().read(&mut buf) {
-                            Ok(bytes) => {
-                                let buf = &buf[..bytes];
-                                pty.write_all(buf).unwrap();
-                            }
-                            Err(e) => {
-                                eprintln!("stdin read failed: {e:?}");
-                                break;
-                            }
-                        }
+                        let bytes = std::io::stdin().read(&mut buf).context("read stdin")?;
+                        let buf = &buf[..bytes];
+                        pty.write_all(buf).context("write all pty")?;
                     }
                     // TODO: so ugly
                     if let Some(l) = listener {
                         listener = if set.contains(l.raw_fd()) {
-                            let monitor = l.accept().expect("monitor accept");
+                            let monitor = l.accept().context("monitor accept")?;
                             let previous = MONITOR_FD.swap(
                                 monitor.into_raw_fd(),
                                 Relaxed, /* FIXME: correct ordering? */
@@ -235,33 +221,24 @@ fn run(listener: MonitorListener, child: &mut Child, pty: &mut Pty) {
                     }
                 }
             }
-            Err(errno) if errno == nix::errno::Errno::EINTR => continue,
-            Err(errno) => {
-                eprintln!("select failed: {errno:?}");
-                break;
-            }
+            Err(errno) if errno == nix::errno::Errno::EINTR => (), // carry on
+            Err(errno) => bail!("select failed errno: {errno:?}"),
         }
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {}
-            Err(e) => {
-                eprintln!("wait failed: {e:?}");
-                break;
-            }
+        // FIXME: ensure everything is forwarded from pty to stdout
+        match child.try_wait().context("try wait")? {
+            None => (), // carry on
+            Some(status) => return Ok(status),
         }
     }
 }
 
-fn main() {
-    let handled = handle_signals().expect("handle signals");
-    let listener = MonitorListener::new().expect("monitor socket");
-    let (mut pty, mut child) =
-        spawn_qemu_child(std::env::args(), handled, listener.path()).expect("spawn qemu");
+fn main() -> Result<()> {
+    let handled = handle_signals().context("handle signals")?;
+    let listener = MonitorListener::new().context("monitor socket")?;
+    let (pty, child) =
+        spawn_qemu_child(std::env::args(), handled, listener.path()).context("spawn qemu")?;
+    let status = run(listener, pty, child).context("run")?;
 
-    run(listener, &mut child, &mut pty);
-
-    let status = child.wait().unwrap();
-    eprintln!("exit()ing with status: {status}");
     exit(
         status
             .code()
