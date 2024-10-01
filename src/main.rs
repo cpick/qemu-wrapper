@@ -4,7 +4,7 @@ use nix::sys::signal::{
 };
 use nix::unistd::{close, write, Pid};
 use pty_process::blocking::Pty;
-use std::io::{Read as _, Write as _};
+use std::io::{stdin, stdout, Error, ErrorKind, Read as _, Write as _};
 use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd as _};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::ExitStatusExt as _;
@@ -94,8 +94,8 @@ impl MonitorListener {
         let path = format!("monitor-{}.sock", id());
 
         match std::fs::remove_file(&path) {
-            Ok(()) => {}                                                     // carry on
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {} // carry on
+            Ok(()) => {}                                            // carry on
+            Err(error) if error.kind() == ErrorKind::NotFound => {} // carry on
             Err(error) => bail!("remove socket file '{path}': {error:?}"),
         }
 
@@ -160,7 +160,7 @@ fn spawn_qemu_child(
         unsafe {
             command.pre_exec(move || {
                 sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)
-                    .map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
+                    .map_err(|errno| Error::from_raw_os_error(errno as i32))
             });
         }
         let child = command.spawn(&pts).context("spawn command")?;
@@ -179,7 +179,7 @@ fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<Exit
     let _raw = raw_guard::RawGuard::new();
     let mut buf = [0_u8; 4096];
     let pty_fd = pty.as_fd().as_raw_fd();
-    let stdin_fd = std::io::stdin().as_raw_fd();
+    let stdin_fd = stdin().as_raw_fd();
     let mut listener = Some(listener);
 
     loop {
@@ -195,13 +195,13 @@ fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<Exit
                     if set.contains(pty_fd) {
                         let bytes = pty.read(&mut buf).context("read pty")?;
                         let buf = &buf[..bytes];
-                        let stdout = std::io::stdout();
+                        let stdout = stdout();
                         let mut stdout = stdout.lock();
                         stdout.write_all(buf).context("write all stdout")?;
                         stdout.flush().context("flush stdout")?;
                     }
                     if set.contains(stdin_fd) {
-                        let bytes = std::io::stdin().read(&mut buf).context("read stdin")?;
+                        let bytes = stdin().read(&mut buf).context("read stdin")?;
                         let buf = &buf[..bytes];
                         pty.write_all(buf).context("write all pty")?;
                     }
