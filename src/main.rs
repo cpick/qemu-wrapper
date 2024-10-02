@@ -65,14 +65,14 @@ where
 // called as a signal handler; must only call async-signal-safe functions
 extern "C" fn signal_handler(signal: c_int) {
     let signal = Signal::try_from(signal).or_fail("signal try from i32");
-    stderr_write("received signal: ");
+    stderr_write("Received signal: ");
     stderr_writeln(signal.as_str());
 
     match signal {
         POWEROFF_SIGNAL => {
             let monitor_fd = MONITOR_FD.swap(-1, Relaxed /* FIXME: correct ordering? */);
             if monitor_fd != -1 {
-                stderr_writeln("sending system powerdown");
+                stderr_writeln("Sending system powerdown");
                 let _length =
                     write(monitor_fd, b"system_powerdown\n").or_fail("write system powerdown");
                 close(monitor_fd).or_fail("close monitor");
@@ -82,7 +82,7 @@ extern "C" fn signal_handler(signal: c_int) {
             // carry on
         }
         Signal::SIGCHLD => {
-            stderr_writeln("child process died");
+            stderr_writeln("Child process died");
             // FIXME: does this race with try_wait()?
             // need to be sure CHILD_PROCESS_ID is cleared before the child is reaped so this
             // handler doesn't send signals to a reused PID
@@ -100,14 +100,14 @@ extern "C" fn signal_handler(signal: c_int) {
     {
         let child_process_id = CHILD_PROCESS_ID.load(Relaxed);
         if child_process_id > 0 {
-            stderr_writeln("killing child process group");
+            stderr_writeln("Killing child process group");
             kill(Pid::from_raw(-(child_process_id as pid_t)), signal)
                 .or_fail("kill child process group");
             return;
         }
     }
 
-    stderr_writeln("resetting handler and reraising signal");
+    stderr_writeln("Resetting handler and reraising signal");
     unsafe {
         let _sigaction = sigaction(
             signal,
@@ -296,7 +296,7 @@ fn main() -> Result<()> {
         .context("spawn qemu")?;
     let status = run(listener, pty, child).context("run")?;
 
-    stderr_writeln(&format!("Exiting; relaying child status: {status}"));
+    eprintln!("Exiting; relaying child status: {status}");
     exit(
         status
             .code()
