@@ -1,6 +1,6 @@
 mod raw_guard;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Error, Result};
 use nix::errno::Errno;
 use nix::libc::{c_int, pid_t, EXIT_FAILURE};
 use nix::sys::{
@@ -153,7 +153,9 @@ impl MonitorListener {
         match std::fs::remove_file(&path) {
             Ok(()) => {}                                            // carry on
             Err(error) if error.kind() == ErrorKind::NotFound => {} // carry on
-            Err(error) => bail!("remove socket file '{path}': {error:?}"),
+            Err(error) => {
+                return Err(Error::new(error).context(format!("remove socket file '{path}'")))
+            }
         }
 
         let listener = UnixListener::bind(&path).context("bind unix listener")?;
@@ -179,7 +181,8 @@ impl Drop for MonitorListener {
     fn drop(&mut self) {
         let path = self.path();
         if let Err(error) = std::fs::remove_file(path) {
-            stderr_writeln(&format!("remove file '{path}': {error:?}"));
+            let error = Error::new(error).context(format!("remove socket file '{path}'"));
+            stderr_writeln(&format!("Error: {error:?}"));
         }
     }
 }
@@ -279,7 +282,7 @@ fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<Exit
                 }
             }
             Err(Errno::EINTR) => (), // carry on
-            Err(errno) => bail!("select failed errno: {errno:?}"),
+            Err(error) => return Err(Error::new(error).context("select")),
         }
         // FIXME: ensure everything is forwarded from pty to stdout
         match child.try_wait().context("try wait")? {
