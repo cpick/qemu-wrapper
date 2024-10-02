@@ -5,5 +5,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = { version = "1.0.89", default-features = false, features = ["std"] }
+libc = { version = "0.2.159", default-features = false, features = ["std"] }
 nix = { version = "0.26.2", default-features = false, features = ["poll", "signal", "term"] }
 pty-process = { version = "0.4.0", default-features = false }

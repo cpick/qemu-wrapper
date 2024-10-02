@@ -80,6 +80,7 @@ name = "qemu-wrapper"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "libc",
  "nix",
  "pty-process",
 ]

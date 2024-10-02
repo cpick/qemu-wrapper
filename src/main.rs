@@ -18,17 +18,50 @@ static MONITOR_FD: AtomicI32 = AtomicI32::new(-1);
 static CHILD_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
 
 // called as a signal handler; must only call async-signal-safe functions
+fn stderr_write(message: &str) {
+    let _ = write(2, message.as_bytes());
+}
+
+// called as a signal handler; must only call async-signal-safe functions
+fn stderr_writeln(message: &str) {
+    stderr_write(message);
+    stderr_write("\r\n"); // in raw mode; include carriage return
+}
+
+pub trait Fallible<T> {
+    // called as a signal handler; must only call async-signal-safe functions
+    fn or_fail(self, message: &str) -> T;
+}
+
+impl<T, E> Fallible<T> for Result<T, E>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    // called as a signal handler; must only call async-signal-safe functions
+    fn or_fail(self, message: &str) -> T {
+        match self {
+            Ok(ok) => ok,
+            Err(_error) => {
+                stderr_write("Error: ");
+                stderr_writeln(message);
+                exit(libc::EXIT_FAILURE)
+            }
+        }
+    }
+}
+
+// called as a signal handler; must only call async-signal-safe functions
 extern "C" fn signal_handler(signal: nix::libc::c_int) {
-    let _length = write(2, b"signal received\n").expect("write signal received");
-    let signal = signal.try_into().expect("signal try from i32");
+    stderr_writeln("signal received");
+    let signal = signal.try_into().or_fail("signal try from i32");
 
     if signal == POWEROFF_SIGNAL {
         let monitor_fd = MONITOR_FD.swap(-1, Relaxed /* FIXME: correct ordering? */);
         if monitor_fd != -1 {
+            stderr_writeln("sending system powerdown");
             let _length =
-                write(2, b"sending system powerdown\n").expect("write sending system powerdown");
-            let _length = write(monitor_fd, b"system_powerdown\n").expect("write system powerdown");
-            close(monitor_fd).expect("close monitor");
+                write(monitor_fd, b"system_powerdown\n").or_fail("write system powerdown");
+            close(monitor_fd).or_fail("close monitor");
             // FIXME: carry on on (some kinds of?) failure
             return;
         }
@@ -38,27 +71,25 @@ extern "C" fn signal_handler(signal: nix::libc::c_int) {
     {
         let child_process_id = CHILD_PROCESS_ID.load(Relaxed);
         if child_process_id > 0 {
-            let _length = write(2, b"killing child process group\n")
-                .expect("write killing child process group");
+            stderr_writeln("killing child process group");
             kill(
                 Pid::from_raw(-(child_process_id as nix::libc::pid_t)),
                 signal,
             )
-            .expect("kill child process group");
+            .or_fail("kill child process group");
             return;
         }
     }
 
-    let _length = write(2, b"resetting handler and reraising signal\n")
-        .expect("resetting handler and reraising signal");
+    stderr_writeln("resetting handler and reraising signal");
     unsafe {
         let _sigaction = sigaction(
             signal,
             &SigAction::new(SigHandler::SigDfl, SaFlags::empty(), SigSet::empty()),
         )
-        .expect("default sigaction");
+        .or_fail("default sigaction");
     }
-    raise(signal).expect("raise signal");
+    raise(signal).or_fail("raise signal");
 }
 
 fn handle_signals() -> Result<SigSet> {
@@ -122,7 +153,7 @@ impl Drop for MonitorListener {
     fn drop(&mut self) {
         let path = self.path();
         if let Err(error) = std::fs::remove_file(path) {
-            eprintln!("remove file '{path}': {error:?}");
+            stderr_writeln(&format!("remove file '{path}': {error:?}"));
         }
     }
 }
@@ -243,6 +274,7 @@ fn main() -> Result<()> {
     .context("spawn qemu")?;
     let status = run(listener, pty, child).context("run")?;
 
+    stderr_writeln(&format!("Exiting; relaying child status: {status}"));
     exit(
         status
             .code()
