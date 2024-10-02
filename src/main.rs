@@ -6,7 +6,7 @@ use nix::libc::{c_int, pid_t, EXIT_FAILURE};
 use nix::sys::{
     select::{select, FdSet},
     signal::{
-        kill, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow,
+        killpg, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow,
         Signal,
     },
 };
@@ -101,7 +101,7 @@ extern "C" fn signal_handler(signal: c_int) {
         let child_process_id = CHILD_PROCESS_ID.load(Relaxed);
         if child_process_id > 0 {
             stderr_writeln("Killing child process group");
-            kill(Pid::from_raw(-(child_process_id as pid_t)), signal)
+            killpg(Pid::from_raw(child_process_id as pid_t), signal)
                 .or_fail("kill child process group");
             return;
         }
