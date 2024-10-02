@@ -25,7 +25,6 @@ use std::os::unix::process::ExitStatusExt as _;
 use std::process::{exit, id, Child, ExitStatus};
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
 
-const POWEROFF_SIGNAL: Signal = Signal::SIGINT; // TODO: make configurable?
 static MONITOR_FD: AtomicI32 = AtomicI32::new(-1);
 static CHILD_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
 
@@ -69,7 +68,7 @@ extern "C" fn signal_handler(signal: c_int) {
     stderr_writeln(signal.as_str());
 
     match signal {
-        POWEROFF_SIGNAL => {
+        Signal::SIGINT | Signal::SIGQUIT | Signal::SIGTERM => {
             let monitor_fd = MONITOR_FD.swap(-1, Relaxed /* FIXME: correct ordering? */);
             if monitor_fd != -1 {
                 stderr_writeln("Sending system powerdown");
