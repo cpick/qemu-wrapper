@@ -128,7 +128,7 @@ impl Drop for MonitorListener {
 }
 
 fn spawn_qemu_child(
-    arguments: std::env::Args,
+    arguments: impl IntoIterator<Item = String>,
     handled: SigSet,
     listener_path: &str,
 ) -> Result<(Pty, Child)> {
@@ -235,8 +235,12 @@ fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<Exit
 fn main() -> Result<()> {
     let handled = handle_signals().context("handle signals")?;
     let listener = MonitorListener::new().context("monitor socket")?;
-    let (pty, child) =
-        spawn_qemu_child(std::env::args(), handled, listener.path()).context("spawn qemu")?;
+    let (pty, child) = spawn_qemu_child(
+        std::env::args().skip(1 /* argv[0] */),
+        handled,
+        listener.path(),
+    )
+    .context("spawn qemu")?;
     let status = run(listener, pty, child).context("run")?;
 
     exit(
