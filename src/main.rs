@@ -1,17 +1,29 @@
+mod raw_guard;
+
 use anyhow::{bail, Context, Result};
-use nix::sys::signal::{
-    kill, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal,
+use nix::errno::Errno;
+use nix::libc::{c_int, pid_t, EXIT_FAILURE};
+use nix::sys::{
+    select::{select, FdSet},
+    signal::{
+        kill, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow,
+        Signal,
+    },
 };
 use nix::unistd::{close, write, Pid};
-use pty_process::blocking::Pty;
-use std::io::{stdin, stdout, Error, ErrorKind, Read as _, Write as _};
+use pty_process::{
+    blocking::{Command, Pty},
+    Size,
+};
+use raw_guard::RawGuard;
+use std::env::args;
+use std::error::Error as StdError;
+use std::io::{stdin, stdout, Error as IoError, ErrorKind, Read as _, Write as _};
 use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd as _};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::ExitStatusExt as _;
 use std::process::{exit, id, Child, ExitStatus};
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
-
-mod raw_guard;
 
 const POWEROFF_SIGNAL: Signal = Signal::SIGINT; // TODO: make configurable?
 static MONITOR_FD: AtomicI32 = AtomicI32::new(-1);
@@ -35,7 +47,7 @@ pub trait Fallible<T> {
 
 impl<T, E> Fallible<T> for Result<T, E>
 where
-    E: std::error::Error + Send + Sync + 'static,
+    E: StdError + Send + Sync + 'static,
 {
     // called as a signal handler; must only call async-signal-safe functions
     fn or_fail(self, message: &str) -> T {
@@ -44,14 +56,14 @@ where
             Err(_error) => {
                 stderr_write("Error: ");
                 stderr_writeln(message);
-                exit(libc::EXIT_FAILURE)
+                exit(EXIT_FAILURE)
             }
         }
     }
 }
 
 // called as a signal handler; must only call async-signal-safe functions
-extern "C" fn signal_handler(signal: nix::libc::c_int) {
+extern "C" fn signal_handler(signal: c_int) {
     let signal = Signal::try_from(signal).or_fail("signal try from i32");
     stderr_write("received signal: ");
     stderr_writeln(signal.as_str());
@@ -89,11 +101,8 @@ extern "C" fn signal_handler(signal: nix::libc::c_int) {
         let child_process_id = CHILD_PROCESS_ID.load(Relaxed);
         if child_process_id > 0 {
             stderr_writeln("killing child process group");
-            kill(
-                Pid::from_raw(-(child_process_id as nix::libc::pid_t)),
-                signal,
-            )
-            .or_fail("kill child process group");
+            kill(Pid::from_raw(-(child_process_id as pid_t)), signal)
+                .or_fail("kill child process group");
             return;
         }
     }
@@ -180,14 +189,14 @@ fn spawn_qemu_child(
     handled: SigSet,
     listener_path: &str,
 ) -> Result<(Pty, Child)> {
-    let pty = pty_process::blocking::Pty::new().context("new pty")?;
+    let pty = Pty::new().context("new pty")?;
     let pts = pty.pts().context("pty pts")?;
     pty.resize(
-        pty_process::Size::new(24, 80), /* FIXME: query from parent terminal */
+        Size::new(24, 80), /* FIXME: query from parent terminal */
     )
     .context("resize ptpy")?;
 
-    let mut command = pty_process::blocking::Command::new("qemu-system-x86_64");
+    let mut command = Command::new("qemu-system-x86_64");
     command.args(
         [
             "-chardev".to_owned(),
@@ -208,7 +217,7 @@ fn spawn_qemu_child(
         unsafe {
             command.pre_exec(move || {
                 sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)
-                    .map_err(|errno| Error::from_raw_os_error(errno as i32))
+                    .map_err(|errno| IoError::from_raw_os_error(errno as i32))
             });
         }
         let child = command.spawn(&pts).context("spawn command")?;
@@ -224,20 +233,20 @@ fn spawn_qemu_child(
 }
 
 fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<ExitStatus> {
-    let _raw = raw_guard::RawGuard::new();
+    let _raw = RawGuard::new();
     let mut buf = [0_u8; 4096];
     let pty_fd = pty.as_fd().as_raw_fd();
     let stdin_fd = stdin().as_raw_fd();
     let mut listener = Some(listener);
 
     loop {
-        let mut set = nix::sys::select::FdSet::new();
+        let mut set = FdSet::new();
         set.insert(pty_fd);
         set.insert(stdin_fd);
         if let Some(ref listener) = listener {
             set.insert(listener.raw_fd());
         }
-        match nix::sys::select::select(None, Some(&mut set), None, None, None) {
+        match select(None, Some(&mut set), None, None, None) {
             Ok(n) => {
                 if n > 0 {
                     if set.contains(pty_fd) {
@@ -269,7 +278,7 @@ fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<Exit
                     }
                 }
             }
-            Err(errno) if errno == nix::errno::Errno::EINTR => (), // carry on
+            Err(Errno::EINTR) => (), // carry on
             Err(errno) => bail!("select failed errno: {errno:?}"),
         }
         // FIXME: ensure everything is forwarded from pty to stdout
@@ -283,12 +292,8 @@ fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<Exit
 fn main() -> Result<()> {
     let handled = handle_signals().context("handle signals")?;
     let listener = MonitorListener::new().context("monitor socket")?;
-    let (pty, child) = spawn_qemu_child(
-        std::env::args().skip(1 /* argv[0] */),
-        handled,
-        listener.path(),
-    )
-    .context("spawn qemu")?;
+    let (pty, child) = spawn_qemu_child(args().skip(1 /* argv[0] */), handled, listener.path())
+        .context("spawn qemu")?;
     let status = run(listener, pty, child).context("run")?;
 
     stderr_writeln(&format!("Exiting; relaying child status: {status}"));
