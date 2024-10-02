@@ -246,7 +246,7 @@ fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<Exit
         let mut set = FdSet::new();
         set.insert(pty_fd);
         set.insert(stdin_fd);
-        if let Some(ref listener) = listener {
+        if let Some(listener) = &listener {
             set.insert(listener.raw_fd());
         }
         match select(None, Some(&mut set), None, None, None) {
