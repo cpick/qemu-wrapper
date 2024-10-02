@@ -52,19 +52,36 @@ where
 
 // called as a signal handler; must only call async-signal-safe functions
 extern "C" fn signal_handler(signal: nix::libc::c_int) {
-    stderr_writeln("signal received");
-    let signal = signal.try_into().or_fail("signal try from i32");
+    let signal = Signal::try_from(signal).or_fail("signal try from i32");
+    stderr_write("received signal: ");
+    stderr_writeln(signal.as_str());
 
-    if signal == POWEROFF_SIGNAL {
-        let monitor_fd = MONITOR_FD.swap(-1, Relaxed /* FIXME: correct ordering? */);
-        if monitor_fd != -1 {
-            stderr_writeln("sending system powerdown");
-            let _length =
-                write(monitor_fd, b"system_powerdown\n").or_fail("write system powerdown");
-            close(monitor_fd).or_fail("close monitor");
-            // FIXME: carry on on (some kinds of?) failure
+    match signal {
+        POWEROFF_SIGNAL => {
+            let monitor_fd = MONITOR_FD.swap(-1, Relaxed /* FIXME: correct ordering? */);
+            if monitor_fd != -1 {
+                stderr_writeln("sending system powerdown");
+                let _length =
+                    write(monitor_fd, b"system_powerdown\n").or_fail("write system powerdown");
+                close(monitor_fd).or_fail("close monitor");
+                // FIXME: carry on on (some kinds of?) failure
+                return;
+            }
+            // carry on
+        }
+        Signal::SIGCHLD => {
+            stderr_writeln("child process died");
+            // FIXME: does this race with try_wait()?
+            // need to be sure CHILD_PROCESS_ID is cleared before the child is reaped so this
+            // handler doesn't send signals to a reused PID
+            // FIXME: do other signals need to be blocked while handling this one?
+            // perhaps return early here, sigprocmask() around try_wait() and clear
+            // CHILD_PROCESS_ID there?
+            CHILD_PROCESS_ID.store(0, Relaxed /* FIXME: correct ordering? */);
             return;
         }
+        // TODO: SIGWINCH
+        _signal => (), // carry on
     }
 
     // sigprocmask() around spawn() and store() prevent race on CHILD_PROCESS_ID
