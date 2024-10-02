@@ -9,7 +9,6 @@ pub struct RawGuard {
 }
 
 impl RawGuard {
-    #[allow(dead_code)]
     pub fn new() -> Result<Self> {
         let stdin = stdin().as_raw_fd();
         let termios = match tcgetattr(stdin) {
