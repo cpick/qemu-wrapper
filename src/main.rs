@@ -18,7 +18,7 @@ use pty_process::{
 use raw_guard::RawGuard;
 use std::env::args;
 use std::error::Error as StdError;
-use std::io::{stdin, stdout, Error as IoError, ErrorKind, Read as _, Write as _};
+use std::io::{stdin, stdout, ErrorKind, Read as _, Write as _};
 use std::os::fd::{AsFd as _, AsRawFd as _, IntoRawFd as _};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::ExitStatusExt as _;
@@ -218,8 +218,8 @@ fn spawn_qemu_child(
 
         unsafe {
             command.pre_exec(move || {
-                sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)
-                    .map_err(|errno| IoError::from_raw_os_error(errno as i32))
+                sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)?;
+                Ok(())
             });
         }
         let child = command.spawn(&pts).context("spawn command")?;
