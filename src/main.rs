@@ -216,11 +216,12 @@ fn spawn_qemu_child(
         sigprocmask(SigmaskHow::SIG_BLOCK, Some(&handled), Some(&mut previous))
             .context("block sigprocmask")?;
 
+        let pre_exec = move || {
+            sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)?;
+            Ok(())
+        };
         unsafe {
-            command.pre_exec(move || {
-                sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)?;
-                Ok(())
-            });
+            command.pre_exec(pre_exec);
         }
         let child = command.spawn(&pts).context("spawn command")?;
         CHILD_PROCESS_ID.store(child.id(), Relaxed);
