@@ -10,7 +10,7 @@ use nix::sys::{
         Signal,
     },
 };
-use nix::unistd::{close, write, Pid};
+use nix::unistd::{close, setpgid, write, Pid};
 use pty_process::{
     blocking::{Command, Pty},
     Size,
@@ -293,6 +293,12 @@ fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<Exit
 }
 
 fn main() -> Result<()> {
+    // FIXME: fails if already session leader
+    setpgid(
+        Pid::from_raw(0 /* this process id */),
+        Pid::from_raw(0 /* this process id as group id */),
+    )
+    .context("setpgid")?;
     let handled = handle_signals().context("handle signals")?;
     let listener = MonitorListener::new().context("monitor socket")?;
     let (pty, child) = spawn_qemu_child(args().skip(1 /* argv[0] */), handled, listener.path())
