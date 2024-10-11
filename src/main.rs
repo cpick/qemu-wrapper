@@ -2,7 +2,7 @@ mod raw_guard;
 
 use anyhow::{Context, Error, Result};
 use nix::errno::Errno;
-use nix::libc::{c_int, pid_t, EXIT_FAILURE};
+use nix::libc::{c_int, pid_t, EXIT_FAILURE, STDERR_FILENO};
 use nix::sys::{
     select::{select, FdSet},
     signal::{
@@ -30,7 +30,7 @@ static CHILD_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
 
 // called as a signal handler; must only call async-signal-safe functions
 fn stderr_write(message: &str) {
-    let _ = write(2, message.as_bytes());
+    let _ = write(STDERR_FILENO, message.as_bytes());
 }
 
 // called as a signal handler; must only call async-signal-safe functions
