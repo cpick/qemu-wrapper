@@ -99,7 +99,7 @@ extern "C" fn signal_handler(signal: c_int) {
     {
         let child_process_id = CHILD_PROCESS_ID.load(Relaxed);
         if child_process_id > 0 {
-            stderr_writeln("Killing child process group");
+            stderr_writeln("Signalling child process group");
             killpg(Pid::from_raw(child_process_id as pid_t), signal)
                 .or_fail("kill child process group");
             return;
