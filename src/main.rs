@@ -8,7 +8,7 @@ use nix::sys::{
     select::{select, FdSet},
     signal::{killpg, raise, sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
 };
-use nix::unistd::{close, setpgid, write, Pid};
+use nix::unistd::{close, getpgrp, setpgid, write, Pid};
 use pty_process::{
     blocking::{Command, Pty},
     Size,
@@ -116,6 +116,17 @@ extern "C" fn signal_handler(signal: c_int) {
     raise(signal).or_fail("raise signal");
 }
 
+fn become_process_group_leader() -> Result<()> {
+    // prevent EPERM failure if this is already session (and thus process group) leader
+    if Pid::this() != getpgrp() {
+        setpgid(
+            Pid::from_raw(0 /* this process id */),
+            Pid::from_raw(0 /* this process id as group id */),
+        )
+        .context("setpgid")?;
+    }
+    Ok(())
+}
 fn handle_signals() -> Result<SigSet> {
     let mut handled = SigSet::empty();
     let action = SigAction::new(
@@ -284,12 +295,7 @@ fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<Exit
 }
 
 fn main() -> Result<()> {
-    // FIXME: fails if already session leader
-    setpgid(
-        Pid::from_raw(0 /* this process id */),
-        Pid::from_raw(0 /* this process id as group id */),
-    )
-    .context("setpgid")?;
+    become_process_group_leader().context("become process group leader")?;
     let handled = handle_signals().context("handle signals")?;
     let listener = MonitorListener::new().context("monitor socket")?;
     let (pty, child) = spawn_qemu_child(args().skip(1 /* argv[0] */), handled, listener.path())
