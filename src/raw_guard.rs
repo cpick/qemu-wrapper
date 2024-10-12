@@ -1,5 +1,7 @@
+use crate::sigmask_guard::SigmaskGuard;
 use anyhow::{Context, Error, Result};
 use nix::errno::Errno;
+use nix::sys::signal::{SigSet, Signal};
 use nix::sys::termios::{cfmakeraw, tcgetattr, tcsetattr, LocalFlags, SetArg, Termios};
 use std::io::stdin;
 use std::os::fd::{AsRawFd as _, RawFd};
@@ -30,6 +32,12 @@ impl RawGuard {
     }
 
     fn set_tty_attributes(fd: RawFd, termios: &Termios) -> Result<()> {
+        let _sigmask = {
+            let mut handled = SigSet::empty();
+            handled.add(Signal::SIGTTOU);
+            SigmaskGuard::new(&handled).context("new sigmask guard")?
+        };
+
         tcsetattr(fd, SetArg::TCSANOW, termios).context("tcsetattr")?;
         Ok(())
     }
