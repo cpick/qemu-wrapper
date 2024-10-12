@@ -1,14 +1,12 @@
 mod raw_guard;
+mod sigmask_guard;
 
 use anyhow::{Context, Error, Result};
 use nix::errno::Errno;
 use nix::libc::{c_int, pid_t, EXIT_FAILURE, STDERR_FILENO};
 use nix::sys::{
     select::{select, FdSet},
-    signal::{
-        killpg, raise, sigaction, sigprocmask, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow,
-        Signal,
-    },
+    signal::{killpg, raise, sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
 };
 use nix::unistd::{close, setpgid, write, Pid};
 use pty_process::{
@@ -16,6 +14,7 @@ use pty_process::{
     Size,
 };
 use raw_guard::RawGuard;
+use sigmask_guard::SigmaskGuard;
 use std::env::args;
 use std::error::Error as StdError;
 use std::io::{stdin, stdout, ErrorKind, Read as _, Write as _};
@@ -86,7 +85,7 @@ extern "C" fn signal_handler(signal: c_int) {
             // need to be sure CHILD_PROCESS_ID is cleared before the child is reaped so this
             // handler doesn't send signals to a reused PID
             // FIXME: do other signals need to be blocked while handling this one?
-            // perhaps return early here, sigprocmask() around try_wait() and clear
+            // perhaps return early here, SigmaskGuard around try_wait() and clear
             // CHILD_PROCESS_ID there?
             CHILD_PROCESS_ID.store(0, Relaxed /* FIXME: correct ordering? */);
             return;
@@ -95,7 +94,7 @@ extern "C" fn signal_handler(signal: c_int) {
         _signal => (), // carry on
     }
 
-    // sigprocmask() around spawn() and store() prevent race on CHILD_PROCESS_ID
+    // SigmaskGuard around spawn() and store() prevent race on CHILD_PROCESS_ID
     {
         let child_process_id = CHILD_PROCESS_ID.load(Relaxed);
         if child_process_id > 0 {
@@ -212,22 +211,14 @@ fn spawn_qemu_child(
 
     // prevent race between the signal handler and setting CHILD_PROCESS_ID
     let child = {
-        let mut previous = SigSet::empty();
-        sigprocmask(SigmaskHow::SIG_BLOCK, Some(&handled), Some(&mut previous))
-            .context("block sigprocmask")?;
+        let mut sigmask = SigmaskGuard::new(&handled).context("new sigmask guard")?;
 
-        let pre_exec = move || {
-            sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)?;
-            Ok(())
-        };
+        let pre_exec = move || sigmask.unblock();
         unsafe {
             command.pre_exec(pre_exec);
         }
         let child = command.spawn(&pts).context("spawn command")?;
         CHILD_PROCESS_ID.store(child.id(), Relaxed);
-
-        sigprocmask(SigmaskHow::SIG_SETMASK, Some(&previous), None)
-            .context("unblock sigprocmask")?;
 
         child
     };
