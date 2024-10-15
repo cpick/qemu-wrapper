@@ -109,7 +109,7 @@ extern "C" fn signal_handler(signal: c_int) {
     unsafe {
         let _sigaction = sigaction(
             signal,
-            &SigAction::new(SigHandler::SigDfl, SaFlags::empty(), SigSet::empty()),
+            &SigAction::new(SigHandler::SigDfl, SaFlags::SA_NOCLDSTOP, SigSet::empty()),
         )
         .or_fail("default sigaction");
     }
@@ -135,6 +135,8 @@ fn handle_signals() -> Result<SigSet> {
         SigSet::empty(),
     );
 
+    // FIXME: don't handle signals iff they're currently ignored
+    // see: https://github.com/nix-rust/nix/issues/2172
     // TODO: handle realtime signals between SIGRTMIN and SIGRTMAX?
     for signal in Signal::iterator().filter(|signal| match signal {
         Signal::SIGKILL | Signal::SIGSTOP // unactionable
