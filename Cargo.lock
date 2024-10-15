@@ -68,8 +68,7 @@ dependencies = [
 [[package]]
 name = "pty-process"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8749b545e244c90bf74a5767764cc2194f1888bb42f84015486a64c82bea5cc0"
+source = "git+https://github.com/cpick/pty-process.git?branch=fix-noctty#349c9ecb92e767d334e3e13c80bda84159932b22"
 dependencies = [
  "libc",
  "rustix",
