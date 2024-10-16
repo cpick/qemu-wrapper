@@ -226,7 +226,7 @@ fn spawn_qemu_child(
     let child = {
         let mut sigmask = SigmaskGuard::new(&handled).context("new sigmask guard")?;
 
-        let pre_exec = move || sigmask.unblock();
+        let pre_exec = move || sigmask.reset();
         unsafe {
             command.pre_exec(pre_exec);
         }
