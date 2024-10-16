@@ -1,7 +1,7 @@
 use crate::sigmask_guard::SigmaskGuard;
 use anyhow::{Context, Error, Result};
 use nix::errno::Errno;
-use nix::sys::signal::{SigSet, Signal};
+use nix::sys::signal::Signal;
 use nix::sys::termios::{cfmakeraw, tcgetattr, tcsetattr, LocalFlags, SetArg, Termios};
 use nix::unistd::{getpgrp, tcgetpgrp, tcsetpgrp, Pid};
 use std::io::stdin;
@@ -29,12 +29,8 @@ impl TerminalGuard {
         let process_group = getpgrp();
         let foreground_process_group = tcgetpgrp(stdin).context("tcgetpgrp")?;
         if process_group != foreground_process_group {
-            let _sigmask = {
-                let mut handled = SigSet::empty();
-                handled.add(Signal::SIGTTOU);
-                SigmaskGuard::new(&handled).context("new sigmask guard")?
-            };
-
+            let _sigmask = SigmaskGuard::new(&[Signal::SIGTTOU].into_iter().collect())
+                .context("new sigmask guard")?;
             tcsetpgrp(stdin, process_group).context("tcsetpgrp")?;
         }
 
