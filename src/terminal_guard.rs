@@ -12,11 +12,11 @@ struct State {
     termios: Termios,
 }
 
-pub struct RawGuard {
+pub struct TerminalGuard {
     state: Option<State>,
 }
 
-impl RawGuard {
+impl TerminalGuard {
     pub fn new() -> Result<Self> {
         let stdin = stdin().as_raw_fd();
         let termios = match tcgetattr(stdin) {
@@ -68,7 +68,7 @@ impl RawGuard {
     }
 }
 
-impl Drop for RawGuard {
+impl Drop for TerminalGuard {
     fn drop(&mut self) {
         match self.reset().context("reset") {
             Ok(()) => (),

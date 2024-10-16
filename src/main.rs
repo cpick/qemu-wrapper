@@ -1,5 +1,5 @@
-mod raw_guard;
 mod sigmask_guard;
+mod terminal_guard;
 
 use anyhow::{Context, Error, Result};
 use nix::errno::Errno;
@@ -13,7 +13,6 @@ use pty_process::{
     blocking::{Command, Pty},
     Size,
 };
-use raw_guard::RawGuard;
 use sigmask_guard::SigmaskGuard;
 use std::env::args;
 use std::error::Error as StdError;
@@ -23,6 +22,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::ExitStatusExt as _;
 use std::process::{exit, id, Child, ExitStatus};
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering::Relaxed};
+use terminal_guard::TerminalGuard;
 
 static MONITOR_FD: AtomicI32 = AtomicI32::new(-1);
 static CHILD_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
@@ -240,7 +240,7 @@ fn spawn_qemu_child(
 }
 
 fn run(listener: MonitorListener, mut pty: Pty, mut child: Child) -> Result<ExitStatus> {
-    let _raw = RawGuard::new();
+    let _terminal = TerminalGuard::new();
     let mut buf = [0_u8; 4096];
     let pty_fd = pty.as_fd().as_raw_fd();
     let stdin_fd = stdin().as_raw_fd();
