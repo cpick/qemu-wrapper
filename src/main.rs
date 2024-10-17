@@ -90,7 +90,6 @@ fn run() -> Result<ExitStatus> {
                 let previous =
                     monitor.replace(listener.accept().context("listener accept monitor")?);
                 assert!(previous.is_none(), "monitor already accepted");
-                terminal.reenable_signals().context("reenable signals")?;
             }
 
             // signal(s)

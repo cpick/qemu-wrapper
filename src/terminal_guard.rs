@@ -2,7 +2,7 @@ use crate::sigmask_guard::SigmaskGuard;
 use anyhow::{Context, Error, Result};
 use nix::errno::Errno;
 use nix::sys::signal::Signal;
-use nix::sys::termios::{tcgetattr, tcsetattr, LocalFlags, SetArg, Termios};
+use nix::sys::termios::{tcgetattr, tcsetattr, SetArg, Termios};
 use nix::unistd::{getpgrp, tcgetpgrp, tcsetpgrp, Pid};
 use std::io::stdin;
 use std::os::fd::{AsFd as _, AsRawFd as _, OwnedFd};
@@ -45,19 +45,6 @@ impl TerminalGuard {
                 termios,
             }),
         })
-    }
-
-    pub fn reenable_signals(&self) -> Result<()> {
-        if let Some(State {
-            terminal, termios, ..
-        }) = &self.state
-        {
-            let isig = termios.local_flags & LocalFlags::ISIG;
-            let mut termios = tcgetattr(terminal.as_raw_fd()).context("tcgetattr")?;
-            termios.local_flags |= isig;
-            tcsetattr(terminal.as_raw_fd(), SetArg::TCSANOW, &termios).context("tcsetattr")?;
-        }
-        Ok(())
     }
 
     fn reset(&mut self) -> Result<()> {
