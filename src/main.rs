@@ -62,21 +62,16 @@ fn run() -> Result<ExitStatus> {
     let listener = MonitorListener::new().context("monitor socket")?;
     let _terminal = TerminalGuard::new().context("terminal guard")?;
 
-    let signals_to_block_in_parent_and_child = [Signal::SIGINT]
+    let signals_to_block_in_parent_and_child = [Signal::SIGHUP, Signal::SIGINT, Signal::SIGTERM]
         .into_iter()
         .collect::<SigSet>();
     let original_sigmask = signals_to_block_in_parent_and_child
         .thread_swap_mask(SigmaskHow::SIG_BLOCK)
         .context("thread swap mask block parent and child")?;
 
-    let signals_to_block_in_parent = [
-        Signal::SIGHUP,
-        Signal::SIGQUIT,
-        Signal::SIGTERM,
-        Signal::SIGCHLD,
-    ]
-    .into_iter()
-    .collect::<SigSet>();
+    let signals_to_block_in_parent = [Signal::SIGQUIT, Signal::SIGCHLD]
+        .into_iter()
+        .collect::<SigSet>();
     let child_sigmask = signals_to_block_in_parent
         .thread_swap_mask(SigmaskHow::SIG_BLOCK)
         .context("thread swap mask block parent")?;
