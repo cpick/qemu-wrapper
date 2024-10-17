@@ -6,8 +6,4 @@ edition = "2021"
 [dependencies]
 anyhow = { version = "1.0.89", default-features = false, features = ["std"] }
 nix = { version = "0.26.2", default-features = false, features = ["poll", "signal", "term"] }
-pty-process = { version = "0.4.0", default-features = false }
-
-[patch.crates-io]
-# TODO: remove once https://github.com/doy/pty-process/pull/16 is merged and released
-pty-process = { git = 'https://github.com/cpick/pty-process.git', branch = 'fix-noctty' }
+signal-hook = { version = "0.3.17", default-features = false, features = ["iterator"] }
