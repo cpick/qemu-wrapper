@@ -130,7 +130,8 @@ fn run() -> Result<ExitStatus> {
 
                         // ctr+z (paused)
                         signal @ SIGTSTP => {
-                            let _stop = StopGuard::new(&child).context("new child stop guard")?;
+                            let _stop =
+                                StopGuard::new(&mut child).context("new child stop guard")?;
                             emulate_default_handler(signal)
                                 .context("emulate default terminal stop handler")?;
                         }

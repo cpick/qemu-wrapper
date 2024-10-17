@@ -6,11 +6,11 @@ use nix::{
 use std::process::Child;
 
 pub struct StopGuard<'child> {
-    child: &'child Child,
+    child: &'child mut Child, // mutable reference to ensure exclusive ownership of child
 }
 
 impl<'child> StopGuard<'child> {
-    pub fn new(child: &'child Child) -> Result<StopGuard<'child>> {
+    pub fn new(child: &'child mut Child) -> Result<StopGuard<'child>> {
         let this = Self { child };
         this.signal(Signal::SIGSTOP)?;
         Ok(this)
