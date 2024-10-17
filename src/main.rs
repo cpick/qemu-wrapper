@@ -15,7 +15,7 @@ use signal_hook::iterator::Signals;
 use std::convert::Infallible;
 use std::env::args;
 use std::io::Write as _;
-use std::os::fd::AsRawFd as _;
+use std::os::fd::AsFd;
 use std::os::unix::process::ExitStatusExt as _;
 use std::process::{exit, Child, Command, ExitStatus};
 use terminal_guard::TerminalGuard;
@@ -79,7 +79,7 @@ fn run() -> Result<ExitStatus> {
     loop {
         let mut fds = FdSet::new();
         if let Some(listener) = &listener {
-            fds.insert(listener.as_raw_fd());
+            fds.insert(listener.as_fd());
         }
 
         // wait for event
@@ -94,8 +94,8 @@ fn run() -> Result<ExitStatus> {
             // monitor connection
             Ok(fds_length) => {
                 assert_eq!(fds_length, 1, "unexpected fds length");
+                assert!(fds.contains(listener.as_ref().expect("listener as ref").as_fd()));
                 let listener = listener.take().expect("take listener");
-                assert!(fds.contains(listener.as_raw_fd()));
 
                 let previous =
                     monitor.replace(listener.accept().context("listener accept monitor")?);

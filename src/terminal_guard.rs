@@ -5,7 +5,7 @@ use nix::sys::signal::Signal;
 use nix::sys::termios::{tcgetattr, tcsetattr, SetArg, Termios};
 use nix::unistd::{getpgrp, tcgetpgrp, tcsetpgrp, Pid};
 use std::io::stdin;
-use std::os::fd::{AsFd as _, AsRawFd as _, OwnedFd};
+use std::os::fd::{AsFd as _, OwnedFd};
 
 struct State {
     terminal: OwnedFd,
@@ -23,7 +23,7 @@ impl TerminalGuard {
             .as_fd()
             .try_clone_to_owned()
             .context("stdin fd try clone to owned")?;
-        let termios = match tcgetattr(terminal.as_raw_fd()) {
+        let termios = match tcgetattr(&terminal) {
             Ok(termios) => termios,
             Err(Errno::ENODEV) => return Ok(Self { state: None }),
             Err(error) => return Err(Error::new(error).context("tcgetattr")),
@@ -31,11 +31,11 @@ impl TerminalGuard {
 
         // mopve to foreground
         let process_group = getpgrp();
-        let foreground_process_group = tcgetpgrp(terminal.as_raw_fd()).context("tcgetpgrp")?;
+        let foreground_process_group = tcgetpgrp(&terminal).context("tcgetpgrp")?;
         if process_group != foreground_process_group {
             let _sigmask = SigmaskGuard::new(&[Signal::SIGTTOU].into_iter().collect())
                 .context("new sigmask guard")?;
-            tcsetpgrp(terminal.as_raw_fd(), process_group).context("tcsetpgrp")?;
+            tcsetpgrp(&terminal, process_group).context("tcsetpgrp")?;
         }
 
         Ok(Self {
@@ -54,8 +54,8 @@ impl TerminalGuard {
             termios,
         }) = &self.state
         {
-            tcsetattr(terminal.as_raw_fd(), SetArg::TCSANOW, termios).context("tcsetattr")?;
-            tcsetpgrp(terminal.as_raw_fd(), *foreground_process_group).context("tcsetpgrp")?;
+            tcsetattr(terminal, SetArg::TCSANOW, termios).context("tcsetattr")?;
+            tcsetpgrp(terminal, *foreground_process_group).context("tcsetpgrp")?;
         }
         Ok(())
     }

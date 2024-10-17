@@ -1,6 +1,6 @@
 use anyhow::{Context, Error, Result};
 use std::io::ErrorKind;
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::id;
 
@@ -46,8 +46,8 @@ impl Drop for MonitorListener {
     }
 }
 
-impl AsRawFd for MonitorListener {
-    fn as_raw_fd(&self) -> RawFd {
-        self.listener.as_raw_fd()
+impl AsFd for MonitorListener {
+    fn as_fd(&self) -> BorrowedFd {
+        self.listener.as_fd()
     }
 }
