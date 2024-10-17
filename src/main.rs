@@ -2,7 +2,7 @@ mod monitor_listener;
 mod sigmask_guard;
 mod terminal_guard;
 
-use anyhow::{bail, Context, Error, Result};
+use anyhow::{Context, Error, Result};
 use monitor_listener::MonitorListener;
 use nix::errno::Errno;
 use nix::sys::{
@@ -12,11 +12,12 @@ use nix::sys::{
 use nix::unistd::{getpgrp, setpgid, Pid};
 use sigmask_guard::SigmaskGuard;
 use signal_hook::iterator::Signals;
+use std::convert::Infallible;
 use std::env::args;
 use std::io::Write as _;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::process::ExitStatusExt as _;
-use std::process::{exit, Child, Command};
+use std::process::{exit, Child, Command, ExitStatus};
 use terminal_guard::TerminalGuard;
 
 fn become_process_group_leader() -> Result<()> {
@@ -50,19 +51,20 @@ fn spawn_qemu_child(
         .context("spawn command")?)
 }
 
-fn main() -> Result<()> {
+fn run() -> Result<ExitStatus> {
+    // setup that must be done before spawning child
     become_process_group_leader().context("become process group leader")?;
     let listener = MonitorListener::new().context("monitor socket")?;
-    let terminal = TerminalGuard::new().context("terminal guard")?;
-
-    let signals = [Signal::SIGINT, Signal::SIGCHLD].into_iter().collect();
-    let sigmask = SigmaskGuard::new(&signals).context("new sigmask guard")?; // block before spawning child
+    let _terminal = TerminalGuard::new().context("terminal guard")?;
+    let signals = [Signal::SIGINT, Signal::SIGCHLD].into_iter().collect(); // must be matched below
+    let sigmask = SigmaskGuard::new(&signals).context("new sigmask guard")?;
     let mut signals =
         Signals::new(signals.into_iter().map(|signal| signal as i32)).context("signals")?;
 
     let mut child = spawn_qemu_child(args().skip(1 /* argv[0] */), listener.path())
         .context("spawn qemu child")?;
 
+    // handle events
     let mut listener = Some(listener);
     let mut monitor = None;
     loop {
@@ -70,6 +72,7 @@ fn main() -> Result<()> {
         if let Some(listener) = &listener {
             fds.insert(listener.as_raw_fd());
         }
+        // wait for event
         match pselect(
             None,
             Some(&mut fds),
@@ -78,18 +81,24 @@ fn main() -> Result<()> {
             None,
             Some(sigmask.previous()),
         ) {
+            // monitor connection
             Ok(fds_length) => {
                 assert_eq!(fds_length, 1, "unexpected fds length");
                 let listener = listener.take().expect("take listener");
                 assert!(fds.contains(listener.as_raw_fd()));
+
                 let previous =
                     monitor.replace(listener.accept().context("listener accept monitor")?);
                 assert!(previous.is_none(), "monitor already accepted");
                 terminal.reenable_signals().context("reenable signals")?;
             }
+
+            // signal(s)
             Err(Errno::EINTR) => {
                 for signal in signals.pending() {
-                    match signal.try_into().context("signal try into")? {
+                    // must match all signals handled above
+                    match signal.try_into().expect("signal try into") {
+                        // ctrl+c
                         Signal::SIGINT => {
                             if let Some(monitor) = &mut monitor {
                                 monitor
@@ -105,24 +114,31 @@ fn main() -> Result<()> {
                                 .context("kill child")?;
                             }
                         }
+
+                        // child changed state
                         Signal::SIGCHLD => {
                             match child.try_wait().context("try wait")? {
                                 None => (), // carry on
-                                Some(status) => {
-                                    exit(
-                                        status
-                                            .code()
-                                            .unwrap_or_else(|| status.signal().unwrap_or(0) + 128),
-                                    );
-                                }
+                                Some(status) => return Ok(status),
                             }
                         }
-                        signal => bail!("unexpected signal: {signal}"),
+
+                        signal => panic!("unexpected signal: {signal}"),
                     }
                 }
             }
+
             Err(Errno::EAGAIN | Errno::ENOMEM) => (), // carry on
-            Err(error) => return Err(Error::new(error).context("select")),
+            Err(error) => return Err(Error::new(error).context("pselect")),
         }
     }
+}
+
+fn main() -> Result<Infallible> {
+    let status = run()?;
+    exit(
+        status
+            .code()
+            .unwrap_or_else(|| status.signal().unwrap_or(0) + 128),
+    );
 }
