@@ -19,16 +19,16 @@ use std::os::unix::process::ExitStatusExt as _;
 use std::process::{Child, Command, ExitCode, ExitStatus};
 use terminal_guard::TerminalGuard;
 
-fn become_process_group_leader() -> Result<()> {
+fn become_process_group_leader() {
     // prevent EPERM failure if this is already session (and thus process group) leader
     if Pid::this() != getpgrp() {
-        setpgid(
-            Pid::from_raw(0 /* this process id */),
-            Pid::from_raw(0 /* this process id as group id */),
-        )
-        .context("setpgid")?;
+        return;
     }
-    Ok(())
+    setpgid(
+        Pid::from_raw(0 /* this process id */),
+        Pid::from_raw(0 /* this process id as group id */),
+    )
+    .expect("setpgid")
 }
 
 fn spawn_qemu_child(
@@ -52,7 +52,7 @@ fn spawn_qemu_child(
 
 fn run() -> Result<ExitStatus> {
     // setup that must be done before spawning child
-    become_process_group_leader().context("become process group leader")?;
+    become_process_group_leader();
     let listener = MonitorListener::new().context("monitor socket")?;
     let _terminal = TerminalGuard::new().context("terminal guard")?;
     let signals = [
