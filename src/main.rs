@@ -39,7 +39,7 @@ fn spawn_qemu_child(
     arguments: impl IntoIterator<Item = String>,
     listener_path: &str,
 ) -> Result<Child> {
-    Ok(Command::new(format!("qemu-system-{ARCH}"))
+    Command::new(format!("qemu-system-{ARCH}"))
         .args(
             [
                 "-chardev".to_owned(),
@@ -51,7 +51,7 @@ fn spawn_qemu_child(
             .chain(arguments),
         )
         .spawn()
-        .context("spawn command")?)
+        .context("spawn command")
 }
 
 fn run() -> Result<ExitStatus> {
