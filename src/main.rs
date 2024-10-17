@@ -1,7 +1,9 @@
+mod monitor_listener;
 mod sigmask_guard;
 mod terminal_guard;
 
 use anyhow::{bail, Context, Error, Result};
+use monitor_listener::MonitorListener;
 use nix::errno::Errno;
 use nix::sys::{
     select::{pselect, FdSet},
@@ -11,11 +13,10 @@ use nix::unistd::{getpgrp, setpgid, Pid};
 use sigmask_guard::SigmaskGuard;
 use signal_hook::iterator::Signals;
 use std::env::args;
-use std::io::{ErrorKind, Write as _};
+use std::io::Write as _;
 use std::os::fd::AsRawFd as _;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::ExitStatusExt as _;
-use std::process::{exit, id, Child, Command};
+use std::process::{exit, Child, Command};
 use terminal_guard::TerminalGuard;
 
 fn become_process_group_leader() -> Result<()> {
@@ -28,52 +29,6 @@ fn become_process_group_leader() -> Result<()> {
         .context("setpgid")?;
     }
     Ok(())
-}
-
-struct MonitorListener {
-    path: String,
-    listener: UnixListener,
-}
-
-impl MonitorListener {
-    fn new() -> Result<Self> {
-        let path = format!("monitor-{}.sock", id());
-
-        match std::fs::remove_file(&path) {
-            Ok(()) => {}                                            // carry on
-            Err(error) if error.kind() == ErrorKind::NotFound => {} // carry on
-            Err(error) => {
-                return Err(Error::new(error).context(format!("remove socket file '{path}'")))
-            }
-        }
-
-        let listener = UnixListener::bind(&path).context("bind unix listener")?;
-
-        Ok(Self { path, listener })
-    }
-
-    fn path(&self) -> &str {
-        &self.path
-    }
-
-    fn raw_fd(&self) -> i32 {
-        self.listener.as_raw_fd()
-    }
-
-    fn accept(self) -> Result<UnixStream> {
-        let (socket, _address) = self.listener.accept().context("listener accept")?;
-        Ok(socket)
-    }
-}
-
-impl Drop for MonitorListener {
-    fn drop(&mut self) {
-        let path = self.path();
-        if let Err(error) = std::fs::remove_file(path) {
-            let error = Error::new(error).context(format!("remove socket file '{path}'"));
-            eprintln!("Error: {error:?}");
-        }
-    }
 }
 
 fn spawn_qemu_child(
@@ -113,7 +68,7 @@ fn main() -> Result<()> {
     loop {
         let mut fds = FdSet::new();
         if let Some(listener) = &listener {
-            fds.insert(listener.raw_fd());
+            fds.insert(listener.as_raw_fd());
         }
         match pselect(
             None,
@@ -126,7 +81,7 @@ fn main() -> Result<()> {
             Ok(fds_length) => {
                 assert_eq!(fds_length, 1, "unexpected fds length");
                 let listener = listener.take().expect("take listener");
-                assert!(fds.contains(listener.raw_fd()));
+                assert!(fds.contains(listener.as_raw_fd()));
                 let previous =
                     monitor.replace(listener.accept().context("listener accept monitor")?);
                 assert!(previous.is_none(), "monitor already accepted");
