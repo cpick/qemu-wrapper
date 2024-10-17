@@ -7,7 +7,7 @@ use monitor_listener::MonitorListener;
 use nix::errno::Errno;
 use nix::sys::{
     select::{pselect, FdSet},
-    signal::{kill, SigSet, SigmaskHow, Signal},
+    signal::{SigSet, SigmaskHow, Signal},
 };
 use nix::unistd::{getpgrp, setpgid, Pid};
 use signal_hook::iterator::Signals;
@@ -96,6 +96,7 @@ fn run() -> Result<ExitStatus> {
         if let Some(listener) = &listener {
             fds.insert(listener.as_raw_fd());
         }
+
         // wait for event
         match pselect(
             None,
@@ -119,7 +120,6 @@ fn run() -> Result<ExitStatus> {
             // signal(s)
             Err(Errno::EINTR) => {
                 for signal in signals.pending() {
-                    // must match all signals handled above
                     match signal.try_into().expect("signal try into") {
                         // child changed state
                         Signal::SIGCHLD => {
@@ -129,29 +129,15 @@ fn run() -> Result<ExitStatus> {
                             }
                         }
 
-                        // powerdown child
+                        // powerdown or kill child
                         signal if signals_to_block_in_parent_and_child.contains(signal) => {
-                            if let Some(monitor) = &mut monitor {
-                                monitor
+                            match &mut monitor {
+                                Some(monitor) => monitor
                                     .write_all(b"system_powerdown\n")
-                                    .context("write system powerdown")?;
-                            } else {
-                                kill(
-                                    Pid::from_raw(
-                                        child.id().try_into().context("child id into pid")?,
-                                    ),
-                                    Signal::SIGQUIT, // child blocks current signal
-                                )
-                                .context("terminate child")?;
+                                    .context("write system powerdown")?,
+                                None => child.kill().context("kill child")?,
                             }
                         }
-
-                        // forward to child
-                        signal if signals_to_block_in_parent.contains(signal) => kill(
-                            Pid::from_raw(child.id().try_into().context("child id into pid")?),
-                            signal,
-                        )
-                        .context("signal child")?,
 
                         signal => panic!("unexpected signal: {signal}"),
                     }
