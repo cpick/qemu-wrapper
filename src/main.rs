@@ -3,6 +3,7 @@
 
 mod monitor_listener;
 mod sigmask_guard;
+mod stop_guard;
 mod terminal_guard;
 
 use anyhow::{Context, Error, Result};
@@ -15,7 +16,7 @@ use nix::sys::{
 use nix::unistd::{getpgrp, setpgid, Pid};
 use sigmask_guard::SigmaskGuard;
 use signal_hook::{
-    consts::{SIGCHLD, SIGHUP, SIGINT, SIGQUIT, SIGTERM},
+    consts::{SIGCHLD, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTSTP},
     iterator::Signals,
     low_level::emulate_default_handler,
 };
@@ -24,6 +25,7 @@ use std::io::Write as _;
 use std::os::fd::AsFd;
 use std::os::unix::process::ExitStatusExt as _;
 use std::process::{Child, Command, ExitCode, ExitStatus};
+use stop_guard::StopGuard;
 use terminal_guard::TerminalGuard;
 
 fn become_process_group_leader() {
@@ -62,7 +64,10 @@ fn run() -> Result<ExitStatus> {
     become_process_group_leader();
     let listener = MonitorListener::new().context("new monitor socket")?;
     let _terminal = TerminalGuard::new().context("new terminal guard")?;
-    let signals = [SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGCHLD /* req'd */];
+    let signals = [
+        SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGCHLD, /* required, handled separately below */
+        SIGTSTP, /* handled separately below */
+    ];
     let sigmask = SigmaskGuard::new(
         signals
             .into_iter()
@@ -122,6 +127,13 @@ fn run() -> Result<ExitStatus> {
                             }
                         }
 
+                        // ctr+z (paused)
+                        signal @ SIGTSTP => {
+                            let _stop = StopGuard::new(&child).context("new child stop guard")?;
+                            emulate_default_handler(signal)
+                                .context("emulate default terminal stop handler")?;
+                        }
+
                         // powerdown or kill child
                         _signal => match &mut monitor {
                             Some(monitor) => monitor
@@ -145,6 +157,6 @@ fn main() -> Result<ExitCode> {
         return Ok(u8::try_from(code).expect("exit code try from u8").into());
     }
     let signal = status.signal().expect("status signal");
-    emulate_default_handler(signal).context("emulate default handler")?;
+    emulate_default_handler(signal).context("emulate default fatal handler")?;
     panic!("non-fatal signal: {signal}");
 }
