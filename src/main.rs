@@ -57,21 +57,19 @@ fn spawn_qemu_child(
 
 fn run() -> Result<ExitStatus> {
     // setup that must be done before spawning child
+
     become_process_group_leader().context("become process group leader")?;
     let listener = MonitorListener::new().context("monitor socket")?;
     let _terminal = TerminalGuard::new().context("terminal guard")?;
-    let signals_to_block_in_parent_and_child = [
-        // must all be matched below
-        Signal::SIGINT,
-    ]
-    .into_iter()
-    .collect::<SigSet>();
+
+    let signals_to_block_in_parent_and_child = [Signal::SIGINT]
+        .into_iter()
+        .collect::<SigSet>();
     let original_sigmask = signals_to_block_in_parent_and_child
         .thread_swap_mask(SigmaskHow::SIG_BLOCK)
         .context("thread swap mask block parent and child")?;
 
     let signals_to_block_in_parent = [
-        // must all be matched below
         Signal::SIGHUP,
         Signal::SIGQUIT,
         Signal::SIGTERM,
@@ -91,6 +89,7 @@ fn run() -> Result<ExitStatus> {
     )
     .context("signals")?;
 
+    // spawn child
     let mut child = spawn_qemu_child(args().skip(1 /* argv[0] */), listener.path(), child_sigmask)
         .context("spawn qemu child")?;
 
@@ -127,8 +126,16 @@ fn run() -> Result<ExitStatus> {
                 for signal in signals.pending() {
                     // must match all signals handled above
                     match signal.try_into().expect("signal try into") {
-                        // ctrl+c
-                        Signal::SIGINT => {
+                        // child changed state
+                        Signal::SIGCHLD => {
+                            match child.try_wait().context("try wait")? {
+                                None => (), // carry on
+                                Some(status) => return Ok(status),
+                            }
+                        }
+
+                        // powerdown child
+                        signal if signals_to_block_in_parent_and_child.contains(signal) => {
                             if let Some(monitor) = &mut monitor {
                                 monitor
                                     .write_all(b"system_powerdown\n")
@@ -138,26 +145,18 @@ fn run() -> Result<ExitStatus> {
                                     Pid::from_raw(
                                         child.id().try_into().context("child id into pid")?,
                                     ),
-                                    Signal::SIGTERM, // SIGINT is blocked
+                                    Signal::SIGQUIT, // child blocks current signal
                                 )
                                 .context("terminate child")?;
                             }
                         }
 
                         // forward to child
-                        signal @ (Signal::SIGHUP | Signal::SIGQUIT | Signal::SIGTERM) => kill(
+                        signal if signals_to_block_in_parent.contains(signal) => kill(
                             Pid::from_raw(child.id().try_into().context("child id into pid")?),
                             signal,
                         )
                         .context("signal child")?,
-
-                        // child changed state
-                        Signal::SIGCHLD => {
-                            match child.try_wait().context("try wait")? {
-                                None => (), // carry on
-                                Some(status) => return Ok(status),
-                            }
-                        }
 
                         signal => panic!("unexpected signal: {signal}"),
                     }
