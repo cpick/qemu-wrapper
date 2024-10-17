@@ -13,7 +13,7 @@ use nix::unistd::{getpgrp, setpgid, Pid};
 use sigmask_guard::SigmaskGuard;
 use signal_hook::iterator::Signals;
 use std::convert::Infallible;
-use std::env::args;
+use std::env::{args, consts::ARCH};
 use std::io::Write as _;
 use std::os::fd::AsFd;
 use std::os::unix::process::ExitStatusExt as _;
@@ -36,7 +36,7 @@ fn spawn_qemu_child(
     arguments: impl IntoIterator<Item = String>,
     listener_path: &str,
 ) -> Result<Child> {
-    Ok(Command::new("qemu-system-x86_64")
+    Ok(Command::new(format!("qemu-system-{ARCH}"))
         .args(
             [
                 "-chardev".to_owned(),
