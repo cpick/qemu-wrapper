@@ -18,10 +18,6 @@ impl SigmaskGuard {
     pub fn reset(&mut self) -> IoResult<()> {
         Ok(self.previous.thread_set_mask()?)
     }
-
-    pub fn previous(&self) -> &SigSet {
-        &self.previous
-    }
 }
 
 impl Drop for SigmaskGuard {

@@ -7,16 +7,15 @@ use monitor_listener::MonitorListener;
 use nix::errno::Errno;
 use nix::sys::{
     select::{pselect, FdSet},
-    signal::{kill, Signal},
+    signal::{kill, SigSet, SigmaskHow, Signal},
 };
 use nix::unistd::{getpgrp, setpgid, Pid};
-use sigmask_guard::SigmaskGuard;
 use signal_hook::iterator::Signals;
 use std::convert::Infallible;
 use std::env::args;
 use std::io::Write as _;
 use std::os::fd::AsRawFd as _;
-use std::os::unix::process::ExitStatusExt as _;
+use std::os::unix::process::{CommandExt, ExitStatusExt as _};
 use std::process::{exit, Child, Command, ExitStatus};
 use terminal_guard::TerminalGuard;
 
@@ -35,20 +34,25 @@ fn become_process_group_leader() -> Result<()> {
 fn spawn_qemu_child(
     arguments: impl IntoIterator<Item = String>,
     listener_path: &str,
+    sigmask: SigSet,
 ) -> Result<Child> {
-    Ok(Command::new("qemu-system-x86_64")
-        .args(
-            [
-                "-chardev".to_owned(),
-                format!("socket,id=mon0,path={},server=off", listener_path),
-                "-mon".to_owned(),
-                "chardev=mon0".to_owned(),
-            ]
-            .into_iter()
-            .chain(arguments),
-        )
-        .spawn()
-        .context("spawn command")?)
+    let mut command = Command::new("qemu-system-x86_64");
+    command.args(
+        [
+            "-chardev".to_owned(),
+            format!("socket,id=mon0,path={},server=off", listener_path),
+            "-mon".to_owned(),
+            "chardev=mon0".to_owned(),
+        ]
+        .into_iter()
+        .chain(arguments),
+    );
+    let pre_exec = move || Ok(sigmask.thread_set_mask()?);
+    unsafe {
+        command.pre_exec(pre_exec);
+    }
+
+    Ok(command.spawn().context("spawn command")?)
 }
 
 fn run() -> Result<ExitStatus> {
@@ -56,12 +60,38 @@ fn run() -> Result<ExitStatus> {
     become_process_group_leader().context("become process group leader")?;
     let listener = MonitorListener::new().context("monitor socket")?;
     let _terminal = TerminalGuard::new().context("terminal guard")?;
-    let signals = [Signal::SIGINT, Signal::SIGCHLD].into_iter().collect(); // must be matched below
-    let sigmask = SigmaskGuard::new(&signals).context("new sigmask guard")?;
-    let mut signals =
-        Signals::new(signals.into_iter().map(|signal| signal as i32)).context("signals")?;
+    let signals_to_block_in_parent_and_child = [
+        // must all be matched below
+        Signal::SIGINT,
+    ]
+    .into_iter()
+    .collect::<SigSet>();
+    let original_sigmask = signals_to_block_in_parent_and_child
+        .thread_swap_mask(SigmaskHow::SIG_BLOCK)
+        .context("thread swap mask block parent and child")?;
 
-    let mut child = spawn_qemu_child(args().skip(1 /* argv[0] */), listener.path())
+    let signals_to_block_in_parent = [
+        // must all be matched below
+        Signal::SIGHUP,
+        Signal::SIGQUIT,
+        Signal::SIGTERM,
+        Signal::SIGCHLD,
+    ]
+    .into_iter()
+    .collect::<SigSet>();
+    let child_sigmask = signals_to_block_in_parent
+        .thread_swap_mask(SigmaskHow::SIG_BLOCK)
+        .context("thread swap mask block parent")?;
+
+    let mut signals = Signals::new(
+        signals_to_block_in_parent_and_child
+            .into_iter()
+            .chain(signals_to_block_in_parent.into_iter())
+            .map(|signal| signal as i32),
+    )
+    .context("signals")?;
+
+    let mut child = spawn_qemu_child(args().skip(1 /* argv[0] */), listener.path(), child_sigmask)
         .context("spawn qemu child")?;
 
     // handle events
@@ -79,7 +109,7 @@ fn run() -> Result<ExitStatus> {
             None,
             None,
             None,
-            Some(sigmask.previous()),
+            Some(&original_sigmask),
         ) {
             // monitor connection
             Ok(fds_length) => {
@@ -108,11 +138,18 @@ fn run() -> Result<ExitStatus> {
                                     Pid::from_raw(
                                         child.id().try_into().context("child id into pid")?,
                                     ),
-                                    Signal::SIGTERM,
+                                    Signal::SIGTERM, // SIGINT is blocked
                                 )
-                                .context("kill child")?;
+                                .context("terminate child")?;
                             }
                         }
+
+                        // forward to child
+                        signal @ (Signal::SIGHUP | Signal::SIGQUIT | Signal::SIGTERM) => kill(
+                            Pid::from_raw(child.id().try_into().context("child id into pid")?),
+                            signal,
+                        )
+                        .context("signal child")?,
 
                         // child changed state
                         Signal::SIGCHLD => {
