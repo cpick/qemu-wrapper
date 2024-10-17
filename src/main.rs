@@ -1,3 +1,6 @@
+#![deny(unsafe_code, warnings, clippy::all, clippy::as_conversions)]
+#![warn(clippy::pedantic)]
+
 mod monitor_listener;
 mod sigmask_guard;
 mod terminal_guard;
@@ -32,7 +35,7 @@ fn become_process_group_leader() {
         Pid::from_raw(0 /* this process id */),
         Pid::from_raw(0 /* this process id as group id */),
     )
-    .expect("setpgid")
+    .expect("setpgid");
 }
 
 fn spawn_qemu_child(
@@ -43,7 +46,7 @@ fn spawn_qemu_child(
         .args(
             [
                 "-chardev".to_owned(),
-                format!("socket,id=mon0,path={},server=off", listener_path),
+                format!("socket,id=mon0,path={listener_path},server=off"),
                 "-mon".to_owned(),
                 "chardev=mon0".to_owned(),
             ]
@@ -61,7 +64,7 @@ fn run() -> Result<ExitStatus> {
     let _terminal = TerminalGuard::new().context("new terminal guard")?;
     let signals = [SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGCHLD /* req'd */];
     let sigmask = SigmaskGuard::new(
-        &signals
+        signals
             .into_iter()
             .map(|signal| Signal::try_from(signal).expect("signal try from"))
             .collect(),

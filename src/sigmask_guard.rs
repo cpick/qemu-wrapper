@@ -7,7 +7,7 @@ pub struct SigmaskGuard {
 }
 
 impl SigmaskGuard {
-    pub fn new(block: &SigSet) -> Result<Self> {
+    pub fn new(block: SigSet) -> Result<Self> {
         Ok(Self {
             previous: block
                 .thread_swap_mask(SigmaskHow::SIG_BLOCK)

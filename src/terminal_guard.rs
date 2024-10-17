@@ -33,7 +33,7 @@ impl TerminalGuard {
         let process_group = getpgrp();
         let foreground_process_group = tcgetpgrp(&terminal).context("tcgetpgrp")?;
         if process_group != foreground_process_group {
-            let _sigmask = SigmaskGuard::new(&[Signal::SIGTTOU].into_iter().collect())
+            let _sigmask = SigmaskGuard::new([Signal::SIGTTOU].into_iter().collect())
                 .context("new sigmask guard")?;
             tcsetpgrp(&terminal, process_group).context("tcsetpgrp")?;
         }
