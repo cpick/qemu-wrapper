@@ -11,7 +11,11 @@ use nix::sys::{
 };
 use nix::unistd::{getpgrp, setpgid, Pid};
 use sigmask_guard::SigmaskGuard;
-use signal_hook::{iterator::Signals, low_level::emulate_default_handler};
+use signal_hook::{
+    consts::{SIGCHLD, SIGHUP, SIGINT, SIGQUIT, SIGTERM},
+    iterator::Signals,
+    low_level::emulate_default_handler,
+};
 use std::env::{args, consts::ARCH};
 use std::io::Write as _;
 use std::os::fd::AsFd;
@@ -53,20 +57,17 @@ fn spawn_qemu_child(
 fn run() -> Result<ExitStatus> {
     // setup that must be done before spawning child
     become_process_group_leader();
-    let listener = MonitorListener::new().context("monitor socket")?;
-    let _terminal = TerminalGuard::new().context("terminal guard")?;
-    let signals = [
-        Signal::SIGHUP,
-        Signal::SIGINT,
-        Signal::SIGQUIT,
-        Signal::SIGTERM,
-        Signal::SIGCHLD,
-    ]
-    .into_iter()
-    .collect();
-    let sigmask = SigmaskGuard::new(&signals).context("new sigmask guard")?;
-    let mut signals =
-        Signals::new(signals.into_iter().map(|signal| signal as i32)).context("signals")?;
+    let listener = MonitorListener::new().context("new monitor socket")?;
+    let _terminal = TerminalGuard::new().context("new terminal guard")?;
+    let signals = [SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGCHLD /* req'd */];
+    let sigmask = SigmaskGuard::new(
+        &signals
+            .into_iter()
+            .map(|signal| Signal::try_from(signal).expect("signal try from"))
+            .collect(),
+    )
+    .context("new sigmask guard")?;
+    let mut signals = Signals::new(signals).context("new signals")?;
 
     // spawn child
     let mut child = spawn_qemu_child(args().skip(1 /* argv[0] */), listener.path())
@@ -108,9 +109,10 @@ fn run() -> Result<ExitStatus> {
             // signal(s)
             Err(Errno::EINTR) => {
                 for signal in signals.pending() {
-                    match signal.try_into().expect("signal try into") {
+                    match signal {
                         // child changed state
-                        Signal::SIGCHLD => {
+                        SIGCHLD => {
+                            // child may be alive but have just stopped/continued
                             match child.try_wait().context("try wait")? {
                                 None => (), // carry on
                                 Some(status) => return Ok(status),
