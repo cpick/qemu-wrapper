@@ -94,10 +94,14 @@ fn run() -> Result<ExitStatus> {
             Ok(fds_length) => {
                 assert_eq!(fds_length, 1, "unexpected fds length");
                 assert!(fds.contains(listener.as_ref().expect("listener as ref").as_fd()));
-                let listener = listener.take().expect("take listener");
 
-                let previous =
-                    monitor.replace(listener.accept().context("listener accept monitor")?);
+                let previous = monitor.replace(
+                    listener
+                        .take()
+                        .expect("take listener")
+                        .accept()
+                        .context("listener accept monitor")?,
+                );
                 assert!(previous.is_none(), "monitor already accepted");
             }
 
