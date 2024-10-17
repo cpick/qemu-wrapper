@@ -15,6 +15,10 @@ impl SigmaskGuard {
         })
     }
 
+    pub fn previous(&self) -> &SigSet {
+        &self.previous
+    }
+
     pub fn reset(&mut self) -> IoResult<()> {
         Ok(self.previous.thread_set_mask()?)
     }
