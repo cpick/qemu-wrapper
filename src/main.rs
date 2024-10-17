@@ -11,13 +11,12 @@ use nix::sys::{
 };
 use nix::unistd::{getpgrp, setpgid, Pid};
 use sigmask_guard::SigmaskGuard;
-use signal_hook::iterator::Signals;
-use std::convert::Infallible;
+use signal_hook::{iterator::Signals, low_level::emulate_default_handler};
 use std::env::{args, consts::ARCH};
 use std::io::Write as _;
 use std::os::fd::AsFd;
 use std::os::unix::process::ExitStatusExt as _;
-use std::process::{exit, Child, Command, ExitStatus};
+use std::process::{Child, Command, ExitCode, ExitStatus};
 use terminal_guard::TerminalGuard;
 
 fn become_process_group_leader() -> Result<()> {
@@ -131,11 +130,12 @@ fn run() -> Result<ExitStatus> {
     }
 }
 
-fn main() -> Result<Infallible> {
+fn main() -> Result<ExitCode> {
     let status = run()?;
-    exit(
-        status
-            .code()
-            .unwrap_or_else(|| status.signal().unwrap_or(0) + 128),
-    );
+    if let Some(code) = status.code() {
+        return Ok(u8::try_from(code).expect("exit code try from u8").into());
+    }
+    let signal = status.signal().expect("status signal");
+    emulate_default_handler(signal).context("emulate default handler")?;
+    panic!("non-fatal signal: {signal}");
 }
