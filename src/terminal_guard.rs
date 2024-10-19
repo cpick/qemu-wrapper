@@ -1,4 +1,5 @@
 use crate::sigmask_guard::SigmaskGuard;
+use crate::stop_guard::StopGuard;
 use anyhow::{Context, Error, Result};
 use nix::{
     errno::Errno,
@@ -12,6 +13,7 @@ use std::{
     any::type_name,
     io::stdin,
     os::fd::{AsFd as _, OwnedFd},
+    process::Child,
 };
 
 struct State {
@@ -22,6 +24,12 @@ struct State {
 
 pub struct TerminalGuard {
     state: Option<State>,
+}
+
+pub struct ResetGuard<'terminal, 'child> {
+    terminal: &'terminal mut TerminalGuard, // mutable reference to ensure exclusive ownership
+    _stop: StopGuard<'child>,
+    termios: Option<Termios>,
 }
 
 impl TerminalGuard {
@@ -35,23 +43,36 @@ impl TerminalGuard {
             Err(Errno::ENODEV) => return Ok(Self { state: None }),
             Err(error) => return Err(Error::new(error).context("tcgetattr")),
         };
-
-        // mopve to foreground
-        let process_group = getpgrp();
         let foreground_process_group = tcgetpgrp(&terminal).context("tcgetpgrp")?;
-        if process_group != foreground_process_group {
-            let _sigmask = SigmaskGuard::new([Signal::SIGTTOU].into_iter().collect())
-                .context("new sigmask guard")?;
-            tcsetpgrp(&terminal, process_group).context("tcsetpgrp")?;
-        }
 
-        Ok(Self {
+        let mut this = Self {
             state: Some(State {
                 terminal,
                 foreground_process_group,
                 termios,
             }),
-        })
+        };
+
+        this.move_to_foreground().context("move to foreground")?;
+
+        Ok(this)
+    }
+
+    fn move_to_foreground(&mut self) -> Result<()> {
+        if let Some(State {
+            terminal,
+            foreground_process_group,
+            ..
+        }) = &self.state
+        {
+            let process_group = getpgrp();
+            if process_group != *foreground_process_group {
+                let _sigmask = SigmaskGuard::new([Signal::SIGTTOU].into_iter().collect())
+                    .context("new sigmask guard")?;
+                tcsetpgrp(terminal, process_group).context("tcsetpgrp")?;
+            }
+        }
+        Ok(())
     }
 
     fn reset(&mut self) -> Result<()> {
@@ -66,11 +87,81 @@ impl TerminalGuard {
         }
         Ok(())
     }
+
+    pub fn stop_child_and_reset_guard<'terminal, 'child>(
+        &'terminal mut self,
+        child: &'child mut Child,
+    ) -> Result<ResetGuard<'terminal, 'child>> {
+        ResetGuard::new(self, child)
+    }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         match self.reset().context("reset") {
+            Ok(()) => (),
+            Err(error) => eprintln!("Error: {} {error:?}", type_name::<Self>()),
+        }
+    }
+}
+
+impl<'terminal, 'child> ResetGuard<'terminal, 'child> {
+    fn new(
+        terminal: &'terminal mut TerminalGuard,
+        child: &'child mut Child,
+    ) -> Result<ResetGuard<'terminal, 'child>> {
+        let stop = StopGuard::new(child).context("new child stop guard")?;
+
+        if terminal.state.is_none() {
+            // this check and return allows the state.expect() calls below
+            return Ok(ResetGuard {
+                terminal,
+                _stop: stop,
+                termios: None,
+            });
+        }
+
+        let termios = tcgetattr(
+            &terminal
+                .state
+                .as_ref()
+                .expect("terminal state as ref") // see state.is_none() above
+                .terminal,
+        )
+        .context("tcgetattr")?;
+        terminal.reset().context("terminal reset")?;
+
+        Ok(ResetGuard {
+            terminal,
+            _stop: stop,
+            termios: Some(termios),
+        })
+    }
+
+    fn reapply(&mut self) -> Result<()> {
+        self.terminal
+            .move_to_foreground()
+            .context("move to foreground")?;
+        if let Some(termios) = &self.termios {
+            tcsetattr(
+                &self
+                    .terminal
+                    .state
+                    .as_ref()
+                    .expect("terminal state as ref")
+                    .terminal,
+                SetArg::TCSANOW,
+                termios,
+            )
+            .context("tcsetattr")?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for ResetGuard<'_, '_> {
+    fn drop(&mut self) {
+        match self.reapply().context("reapply") {
             Ok(()) => (),
             Err(error) => eprintln!("Error: {} {error:?}", type_name::<Self>()),
         }

@@ -28,7 +28,6 @@ use std::{
     os::{fd::AsFd, unix::process::ExitStatusExt as _},
     process::{Child, Command, ExitCode, ExitStatus},
 };
-use stop_guard::StopGuard;
 use terminal_guard::TerminalGuard;
 
 fn become_process_group_leader() {
@@ -66,7 +65,7 @@ fn run() -> Result<ExitStatus> {
     // setup that must be done before spawning child
     become_process_group_leader();
     let listener = MonitorListener::new().context("new monitor socket")?;
-    let _terminal = TerminalGuard::new().context("new terminal guard")?;
+    let mut terminal = TerminalGuard::new().context("new terminal guard")?;
     let signals = [
         SIGHUP, SIGINT, SIGQUIT, SIGTERM, // powerdown child
         SIGCHLD, // required, handled separately below
@@ -133,8 +132,9 @@ fn run() -> Result<ExitStatus> {
 
                         // ctr+z (paused)
                         signal @ SIGTSTP => {
-                            let _stop =
-                                StopGuard::new(&mut child).context("new child stop guard")?;
+                            let _reset = terminal
+                                .stop_child_and_reset_guard(&mut child)
+                                .context("terminal stop child and reset guard")?;
                             emulate_default_handler(signal)
                                 .context("emulate default terminal stop handler")?;
                         }
