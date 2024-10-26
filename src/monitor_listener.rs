@@ -1,8 +1,12 @@
 use anyhow::{Context, Error, Result};
-use std::io::ErrorKind;
-use std::os::fd::{AsFd, BorrowedFd};
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::process::id;
+use std::{
+    io::ErrorKind,
+    os::{
+        fd::{AsFd, BorrowedFd},
+        unix::net::{UnixListener, UnixStream},
+    },
+    process::id,
+};
 
 pub struct MonitorListener {
     path: String,

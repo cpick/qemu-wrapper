@@ -8,23 +8,26 @@ mod terminal_guard;
 
 use anyhow::{Context, Error, Result};
 use monitor_listener::MonitorListener;
-use nix::errno::Errno;
-use nix::sys::{
-    select::{pselect, FdSet},
-    signal::Signal,
+use nix::{
+    errno::Errno,
+    sys::{
+        select::{pselect, FdSet},
+        signal::Signal,
+    },
+    unistd::{getpgrp, setpgid, Pid},
 };
-use nix::unistd::{getpgrp, setpgid, Pid};
 use sigmask_guard::SigmaskGuard;
 use signal_hook::{
     consts::{SIGCHLD, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTSTP},
     iterator::Signals,
     low_level::emulate_default_handler,
 };
-use std::env::{args, consts::ARCH};
-use std::io::Write as _;
-use std::os::fd::AsFd;
-use std::os::unix::process::ExitStatusExt as _;
-use std::process::{Child, Command, ExitCode, ExitStatus};
+use std::{
+    env::{args, consts::ARCH},
+    io::Write as _,
+    os::{fd::AsFd, unix::process::ExitStatusExt as _},
+    process::{Child, Command, ExitCode, ExitStatus},
+};
 use stop_guard::StopGuard;
 use terminal_guard::TerminalGuard;
 

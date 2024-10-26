@@ -1,11 +1,17 @@
 use crate::sigmask_guard::SigmaskGuard;
 use anyhow::{Context, Error, Result};
-use nix::errno::Errno;
-use nix::sys::signal::Signal;
-use nix::sys::termios::{tcgetattr, tcsetattr, SetArg, Termios};
-use nix::unistd::{getpgrp, tcgetpgrp, tcsetpgrp, Pid};
-use std::io::stdin;
-use std::os::fd::{AsFd as _, OwnedFd};
+use nix::{
+    errno::Errno,
+    sys::{
+        signal::Signal,
+        termios::{tcgetattr, tcsetattr, SetArg, Termios},
+    },
+    unistd::{getpgrp, tcgetpgrp, tcsetpgrp, Pid},
+};
+use std::{
+    io::stdin,
+    os::fd::{AsFd as _, OwnedFd},
+};
 
 struct State {
     terminal: OwnedFd,
