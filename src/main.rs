@@ -65,8 +65,9 @@ fn run() -> Result<ExitStatus> {
     let listener = MonitorListener::new().context("new monitor socket")?;
     let _terminal = TerminalGuard::new().context("new terminal guard")?;
     let signals = [
-        SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGCHLD, /* required, handled separately below */
-        SIGTSTP, /* handled separately below */
+        SIGHUP, SIGINT, SIGQUIT, SIGTERM, // powerdown child
+        SIGCHLD, // required, handled separately below
+        SIGTSTP, // handled separately below
     ];
     let sigmask = SigmaskGuard::new(
         signals
