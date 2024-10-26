@@ -1,6 +1,7 @@
 use crate::sigmask_guard::SigmaskGuard;
-use crate::stop_guard::StopGuard;
+use crate::stop_guard::ChildStopGuard;
 use anyhow::{Context, Error, Result};
+use nix::sys::signal::killpg;
 use nix::{
     errno::Errno,
     sys::{
@@ -16,20 +17,20 @@ use std::{
     process::Child,
 };
 
-struct State {
+struct TerminalState {
     terminal: OwnedFd,
     foreground_process_group: Pid,
     termios: Termios,
 }
 
 pub struct TerminalGuard {
-    state: Option<State>,
+    state: Option<TerminalState>,
 }
 
 pub struct ResetGuard<'terminal, 'child> {
     terminal: &'terminal mut TerminalGuard, // mutable reference to ensure exclusive ownership
-    _stop: StopGuard<'child>,
     termios: Option<Termios>,
+    _child_stop: ChildStopGuard<'child>,
 }
 
 impl TerminalGuard {
@@ -46,7 +47,7 @@ impl TerminalGuard {
         let foreground_process_group = tcgetpgrp(&terminal).context("tcgetpgrp")?;
 
         let mut this = Self {
-            state: Some(State {
+            state: Some(TerminalState {
                 terminal,
                 foreground_process_group,
                 termios,
@@ -59,7 +60,7 @@ impl TerminalGuard {
     }
 
     fn move_to_foreground(&mut self) -> Result<()> {
-        if let Some(State {
+        if let Some(TerminalState {
             terminal,
             foreground_process_group,
             ..
@@ -76,14 +77,16 @@ impl TerminalGuard {
     }
 
     fn reset(&mut self) -> Result<()> {
-        if let Some(State {
+        if let Some(TerminalState {
             terminal,
             foreground_process_group,
             termios,
         }) = &self.state
         {
-            tcsetattr(terminal, SetArg::TCSANOW, termios).context("tcsetattr")?;
-            tcsetpgrp(terminal, *foreground_process_group).context("tcsetpgrp")?;
+            if tcgetpgrp(&terminal).context("tcgetpgrp")? == getpgrp() {
+                tcsetattr(terminal, SetArg::TCSANOW, termios).context("tcsetattr")?;
+                tcsetpgrp(terminal, *foreground_process_group).context("tcsetpgrp")?;
+            }
         }
         Ok(())
     }
@@ -93,6 +96,17 @@ impl TerminalGuard {
         child: &'child mut Child,
     ) -> Result<ResetGuard<'terminal, 'child>> {
         ResetGuard::new(self, child)
+    }
+
+    pub fn signal_foreground_process_group(&mut self, signal: Signal) -> Result<()> {
+        if let Some(TerminalState {
+            foreground_process_group,
+            ..
+        }) = &self.state
+        {
+            killpg(*foreground_process_group, signal).context("killpg")?;
+        }
+        Ok(())
     }
 }
 
@@ -110,14 +124,14 @@ impl<'terminal, 'child> ResetGuard<'terminal, 'child> {
         terminal: &'terminal mut TerminalGuard,
         child: &'child mut Child,
     ) -> Result<ResetGuard<'terminal, 'child>> {
-        let stop = StopGuard::new(child).context("new child stop guard")?;
+        let stop = ChildStopGuard::new(child).context("new child stop guard")?;
 
         if terminal.state.is_none() {
             // this check and return allows the state.expect() calls below
             return Ok(ResetGuard {
                 terminal,
-                _stop: stop,
                 termios: None,
+                _child_stop: stop,
             });
         }
 
@@ -133,8 +147,8 @@ impl<'terminal, 'child> ResetGuard<'terminal, 'child> {
 
         Ok(ResetGuard {
             terminal,
-            _stop: stop,
             termios: Some(termios),
+            _child_stop: stop,
         })
     }
 
