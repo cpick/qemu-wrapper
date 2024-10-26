@@ -1,5 +1,6 @@
 use anyhow::{Context, Error, Result};
 use std::{
+    any::type_name,
     io::ErrorKind,
     os::{
         fd::{AsFd, BorrowedFd},
@@ -45,7 +46,7 @@ impl Drop for MonitorListener {
         let path = self.path();
         if let Err(error) = std::fs::remove_file(path) {
             let error = Error::new(error).context(format!("remove socket file '{path}'"));
-            eprintln!("Error: {error:?}");
+            eprintln!("Error: {} {error:?}", type_name::<Self>());
         }
     }
 }

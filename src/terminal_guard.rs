@@ -9,6 +9,7 @@ use nix::{
     unistd::{getpgrp, tcgetpgrp, tcsetpgrp, Pid},
 };
 use std::{
+    any::type_name,
     io::stdin,
     os::fd::{AsFd as _, OwnedFd},
 };
@@ -71,7 +72,7 @@ impl Drop for TerminalGuard {
     fn drop(&mut self) {
         match self.reset().context("reset") {
             Ok(()) => (),
-            Err(error) => eprintln!("Error: {error:?}"),
+            Err(error) => eprintln!("Error: {} {error:?}", type_name::<Self>()),
         }
     }
 }

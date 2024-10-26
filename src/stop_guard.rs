@@ -3,7 +3,7 @@ use nix::{
     sys::signal::{kill, Signal},
     unistd::Pid,
 };
-use std::process::Child;
+use std::{any::type_name, process::Child};
 
 pub struct StopGuard<'child> {
     child: &'child mut Child, // mutable reference to ensure exclusive ownership of child
@@ -29,7 +29,7 @@ impl Drop for StopGuard<'_> {
     fn drop(&mut self) {
         match self.signal(Signal::SIGCONT).context("signal continue") {
             Ok(()) => (),
-            Err(error) => eprintln!("Error: {error:?}"),
+            Err(error) => eprintln!("Error: {} {error:?}", type_name::<Self>()),
         }
     }
 }

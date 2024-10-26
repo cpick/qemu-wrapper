@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use nix::sys::signal::{SigSet, SigmaskHow};
-use std::io::Result as IoResult;
+use std::{any::type_name, io::Result as IoResult};
 
 pub struct SigmaskGuard {
     previous: SigSet,
@@ -28,7 +28,7 @@ impl Drop for SigmaskGuard {
     fn drop(&mut self) {
         match self.reset().context("reset") {
             Ok(()) => (),
-            Err(error) => eprintln!("Error: {error:?}"),
+            Err(error) => eprintln!("Error: {} {error:?}", type_name::<Self>()),
         }
     }
 }
