@@ -15,7 +15,7 @@ mod sigmask_guard;
 mod stop_guard;
 mod terminal_guard;
 
-use anyhow::{bail, Context, Error, Result};
+use anyhow::{anyhow, bail, Context, Error, Result};
 use monitor_listener::MonitorListener;
 use nix::{
     errno::Errno,
@@ -33,7 +33,7 @@ use signal_hook::{
     low_level::emulate_default_handler,
 };
 use std::{
-    env::{args, consts::ARCH},
+    env::args,
     io::Write as _,
     os::{
         fd::AsFd,
@@ -47,10 +47,12 @@ use terminal_guard::TerminalGuard;
 type Signals = SignalsInfo<WithRawSiginfo>;
 
 fn spawn_qemu_child(
+    architecture: &str,
     arguments: impl IntoIterator<Item = String>,
     listener_path: &str,
 ) -> Result<Child> {
-    Command::new(format!("qemu-system-{ARCH}"))
+    let program = format!("qemu-system-{architecture}");
+    Command::new(&program)
         .args(
             [
                 "-chardev".to_owned(),
@@ -62,7 +64,7 @@ fn spawn_qemu_child(
             .chain(arguments),
         )
         .spawn()
-        .context("spawn command")
+        .with_context(|| format!("spawn command: '{program}' ..."))
 }
 
 fn run_child(sigmask: SigmaskGuard, mut signals: Signals) -> Result<WaitStatus> {
@@ -76,7 +78,11 @@ fn run_child(sigmask: SigmaskGuard, mut signals: Signals) -> Result<WaitStatus> 
     let mut terminal = TerminalGuard::new().context("new terminal guard")?;
 
     // spawn grandchild
-    let mut grandchild = spawn_qemu_child(args().skip(1 /* argv[0] */), listener.path())
+    let mut arguments = args().skip(1 /* argv[0] */);
+    let architecture = arguments
+        .next()
+        .ok_or_else(|| anyhow!("missing <guest_architecture> argument"))?;
+    let mut grandchild = spawn_qemu_child(&architecture, arguments, listener.path())
         .context("spawn qemu grandchild")?;
 
     // handle events
