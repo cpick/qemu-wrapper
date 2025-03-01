@@ -27,13 +27,8 @@
             pkgs.cargo
             pkgs.cargo-watch
             pkgs.clippy
-            pkgs.lldb_18
-            pkgs.nil
-            pkgs.rust-analyzer
             pkgs.qemu
             pkgs.rustc
-            pkgs.rustfmt
-            pkgs.taplo
           ];
           RUST_SRC_PATH = pkgs.rust.packages.stable.rustPlatform.rustLibSrc;
         };
