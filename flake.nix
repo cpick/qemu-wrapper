@@ -40,6 +40,8 @@
           ];
           RUST_SRC_PATH = pkgs.rust.packages.stable.rustPlatform.rustLibSrc;
         };
+
+        formatter = pkgs.nixfmt-rfc-style;
       }
     );
 }
