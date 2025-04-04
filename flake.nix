@@ -8,15 +8,22 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   };
 
-  outputs = { self, flake-utils, naersk, nixpkgs }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let pkgs = nixpkgs.legacyPackages."${system}";
-      in {
+  outputs =
+    {
+      self,
+      flake-utils,
+      naersk,
+      nixpkgs,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = nixpkgs.legacyPackages."${system}";
+      in
+      {
         packages.default = naersk.lib."${system}".buildPackage {
           postInstall = ''
-            wrapProgram $out/bin/qemu-wrapper --prefix PATH : ${
-              pkgs.lib.makeBinPath [ pkgs.qemu ]
-            }
+            wrapProgram $out/bin/qemu-wrapper --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.qemu ]}
           '';
           nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
           src = self;
@@ -33,5 +40,6 @@
           ];
           RUST_SRC_PATH = pkgs.rust.packages.stable.rustPlatform.rustLibSrc;
         };
-      });
+      }
+    );
 }
