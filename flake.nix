@@ -26,11 +26,13 @@
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        commonArgsAndCargoArtifacts = commonArgs // {
+          inherit cargoArtifacts;
+        };
 
         qemu-wrapper = craneLib.buildPackage (
-          commonArgs
+          commonArgsAndCargoArtifacts
           // {
-            inherit cargoArtifacts;
             postInstall = ''
               wrapProgram $out/bin/qemu-wrapper --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.qemu ]}
             '';
@@ -40,21 +42,9 @@
       in
       {
         checks = {
-          inherit qemu-wrapper; # build as part of `nix flake check` for convenience
-
-          qemu-wrapper-clippy = craneLib.cargoClippy (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-            }
-          );
-
-          qemu-wrapper-doc = craneLib.cargoDoc (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-            }
-          );
+          inherit qemu-wrapper; # check build
+          qemu-wrapper-clippy = craneLib.cargoClippy commonArgsAndCargoArtifacts;
+          qemu-wrapper-doc = craneLib.cargoDoc commonArgsAndCargoArtifacts;
 
           qemu-wrapper-fmt = craneLib.cargoFmt {
             inherit src;
@@ -62,16 +52,12 @@
 
           qemu-wrapper-toml-fmt = craneLib.taploFmt {
             src = pkgs.lib.sources.sourceFilesBySuffices src [ ".toml" ];
-            # taploExtraArgs = "--config ./taplo.toml";
           };
         };
 
         packages = {
+          inherit qemu-wrapper;
           default = qemu-wrapper;
-        };
-
-        apps.default = flake-utils.lib.mkApp {
-          drv = qemu-wrapper;
         };
 
         devShells.default = craneLib.devShell {
