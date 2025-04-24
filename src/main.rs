@@ -67,7 +67,7 @@ fn spawn_qemu_child(
         .with_context(|| format!("spawn command: '{program}' ..."))
 }
 
-fn run_child(sigmask: SigmaskGuard, mut signals: Signals) -> Result<WaitStatus> {
+fn run_child(sigmask: &SigmaskGuard, mut signals: Signals) -> Result<WaitStatus> {
     // setup that must be done before spawning grandchild
     setpgid(
         Pid::from_raw(0 /* this process id */),
@@ -128,7 +128,7 @@ fn run_child(sigmask: SigmaskGuard, mut signals: Signals) -> Result<WaitStatus> 
                             match grandchild.try_wait().context("try wait")? {
                                 None => (), // carry on
                                 Some(status) => {
-                                    return Ok(WaitStatus::from_raw(
+                                    return WaitStatus::from_raw(
                                         Pid::from_raw(
                                             grandchild
                                                 .id()
@@ -137,7 +137,7 @@ fn run_child(sigmask: SigmaskGuard, mut signals: Signals) -> Result<WaitStatus> 
                                         ),
                                         status.into_raw(),
                                     )
-                                    .context("wait status from raw")?)
+                                    .context("wait status from raw");
                                 }
                             }
                         }
@@ -202,7 +202,7 @@ fn run() -> Result<WaitStatus> {
     // SAFETY: safe in a singly-threaded process
     let child = match unsafe { fork() }.context("fork")? {
         ForkResult::Parent { child } => child,
-        ForkResult::Child => return run_child(sigmask, signals).context("run child"),
+        ForkResult::Child => return run_child(&sigmask, signals).context("run child"),
     };
     drop(sigmask); // unblock
 
@@ -237,11 +237,11 @@ fn run() -> Result<WaitStatus> {
 fn main() -> Result<ExitCode> {
     match run().context("run")? {
         WaitStatus::Exited(_process_id, code) => {
-            return Ok(u8::try_from(code).expect("exit code try from u8").into());
+            Ok(u8::try_from(code).expect("exit code try from u8").into())
         }
         WaitStatus::Signaled(_process_id, signal, _dumped_core) => {
-            emulate_default_handler((signal as i32).try_into().expect("signal try into"))
-                .context("emulate default fatal handler")?;
+            #[allow(clippy::as_conversions)]
+            emulate_default_handler(signal as i32).context("emulate default fatal handler")?;
             panic!("non-fatal signal: {signal}");
         }
         status => bail!("wait status unexpected: {status:?}"),

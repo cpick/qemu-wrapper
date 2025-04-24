@@ -83,7 +83,7 @@ impl TerminalGuard {
             termios,
         }) = &self.state
         {
-            if tcgetpgrp(&terminal).context("tcgetpgrp")? == getpgrp() {
+            if tcgetpgrp(terminal).context("tcgetpgrp")? == getpgrp() {
                 tcsetattr(terminal, SetArg::TCSANOW, termios).context("tcsetattr")?;
                 tcsetpgrp(terminal, *foreground_process_group).context("tcsetpgrp")?;
             }
