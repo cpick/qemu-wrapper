@@ -6,9 +6,9 @@ use nix::{
     errno::Errno,
     sys::{
         signal::Signal,
-        termios::{tcgetattr, tcsetattr, SetArg, Termios},
+        termios::{SetArg, Termios, tcgetattr, tcsetattr},
     },
-    unistd::{getpgrp, tcgetpgrp, tcsetpgrp, Pid},
+    unistd::{Pid, getpgrp, tcgetpgrp, tcsetpgrp},
 };
 use std::{
     any::type_name,

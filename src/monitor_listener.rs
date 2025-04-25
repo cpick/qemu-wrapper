@@ -22,7 +22,7 @@ impl MonitorListener {
             Ok(()) => {}                                            // carry on
             Err(error) if error.kind() == ErrorKind::NotFound => {} // carry on
             Err(error) => {
-                return Err(Error::new(error).context(format!("remove socket file '{path}'")))
+                return Err(Error::new(error).context(format!("remove socket file '{path}'")));
             }
         }
 

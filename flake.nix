@@ -22,6 +22,7 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages."${system}";
+        inherit (pkgs) lib;
 
         craneLib = crane.mkLib pkgs;
         src = craneLib.cleanCargoSource ./.;
@@ -40,7 +41,7 @@
           commonArgsAndCargoArtifacts
           // {
             postInstall = ''
-              wrapProgram $out/bin/qemu-wrapper --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.qemu ]}
+              wrapProgram $out/bin/qemu-wrapper --prefix PATH : ${lib.makeBinPath [ pkgs.qemu ]}
             '';
             nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
           }
@@ -53,7 +54,10 @@
             programs = {
               nixfmt.enable = true;
               taplo.enable = true;
-              rustfmt.enable = true;
+              rustfmt = {
+                edition = (lib.importTOML ./Cargo.toml).package.edition;
+                enable = true;
+              };
             };
           }).config.build;
       in

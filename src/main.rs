@@ -15,21 +15,21 @@ mod sigmask_guard;
 mod stop_guard;
 mod terminal_guard;
 
-use anyhow::{anyhow, bail, Context, Error, Result};
+use anyhow::{Context, Error, Result, anyhow, bail};
 use monitor_listener::MonitorListener;
 use nix::{
     errno::Errno,
     sys::{
-        select::{pselect, FdSet},
-        signal::{kill, Signal},
-        wait::{waitpid, WaitPidFlag, WaitStatus},
+        select::{FdSet, pselect},
+        signal::{Signal, kill},
+        wait::{WaitPidFlag, WaitStatus, waitpid},
     },
-    unistd::{fork, setpgid, ForkResult, Pid},
+    unistd::{ForkResult, Pid, fork, setpgid},
 };
 use sigmask_guard::SigmaskGuard;
 use signal_hook::{
     consts::{SIGCHLD, SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTSTP, SIGTTIN, SIGTTOU},
-    iterator::{exfiltrator::WithRawSiginfo, SignalsInfo},
+    iterator::{SignalsInfo, exfiltrator::WithRawSiginfo},
     low_level::emulate_default_handler,
 };
 use std::{
@@ -37,7 +37,7 @@ use std::{
     io::Write as _,
     os::{
         fd::AsFd,
-        unix::process::{parent_id, ExitStatusExt as _},
+        unix::process::{ExitStatusExt as _, parent_id},
     },
     process::{Child, Command, ExitCode},
 };

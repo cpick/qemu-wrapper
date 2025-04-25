@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use nix::{
-    sys::signal::{kill, Signal},
+    sys::signal::{Signal, kill},
     unistd::Pid,
 };
 use std::{any::type_name, process::Child};
