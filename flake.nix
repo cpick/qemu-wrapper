@@ -3,6 +3,11 @@
     crane.url = "github:ipetkov/crane";
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -11,6 +16,7 @@
       crane,
       flake-utils,
       nixpkgs,
+      treefmt-nix,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -39,20 +45,25 @@
             nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
           }
         );
+
+        treefmt =
+          (treefmt-nix.lib.evalModule pkgs {
+            projectRootFile = "flake.nix";
+
+            programs = {
+              nixfmt.enable = true;
+              taplo.enable = true;
+              rustfmt.enable = true;
+            };
+          }).config.build;
       in
       {
         checks = {
           inherit qemu-wrapper; # check build
+
+          formatting = treefmt.check self;
           qemu-wrapper-clippy = craneLib.cargoClippy commonArgsAndCargoArtifacts;
           qemu-wrapper-doc = craneLib.cargoDoc commonArgsAndCargoArtifacts;
-
-          qemu-wrapper-fmt = craneLib.cargoFmt {
-            inherit src;
-          };
-
-          qemu-wrapper-toml-fmt = craneLib.taploFmt {
-            src = pkgs.lib.sources.sourceFilesBySuffices src [ ".toml" ];
-          };
         };
 
         packages = {
@@ -64,7 +75,7 @@
           checks = self.checks."${system}"; # inherit inputs
         };
 
-        formatter = pkgs.nixfmt-rfc-style;
+        formatter = treefmt.wrapper;
       }
     );
 }
