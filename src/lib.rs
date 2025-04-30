@@ -3,38 +3,40 @@ use ctor::ctor;
 use qemu_plugin::{
     PluginId, TranslationBlock,
     plugin::{HasCallbacks, PLUGIN, Plugin, Register},
+    qemu_plugin_outs, qemu_plugin_uninstall,
 };
 use std::sync::Mutex;
 
-struct TinyTrace {}
+struct Ready {}
 
-impl Register for TinyTrace {}
+impl Register for Ready {}
 
-impl HasCallbacks for TinyTrace {
-    fn on_translation_block_translate(
-        &mut self,
-        _id: PluginId,
-        tb: TranslationBlock,
-    ) -> Result<()> {
-        tb.instructions().enumerate().try_for_each(|(idx, insn)| {
-            if idx == 0 {
-                println!("====TB: {:08x}", insn.vaddr());
-            }
+impl HasCallbacks for Ready {
+    fn on_translation_block_translate(&mut self, id: PluginId, tb: TranslationBlock) -> Result<()> {
+        const OPCODE: [u8; 2] = [0xe6 /* OUT */, 0xf5 /* imm8 port */];
 
-            println!("{:08x}: {}", insn.vaddr(), insn.disas()?);
-            Ok::<(), anyhow::Error>(())
-        })?;
+        tb.instructions()
+            .filter(|instruction| {
+                (instruction.size() == OPCODE.len()) && (instruction.data() == OPCODE)
+            })
+            .for_each(move |instruction| {
+                instruction.register_execute_callback(move |_vcpu| {
+                    qemu_plugin_outs("VM has signaled that it is ready\n")
+                        .expect("qemu plugin outs");
+                    qemu_plugin_uninstall(id, |_id| {}).expect("qemu plugin uninstall");
+                });
+            });
 
         Ok(())
     }
 }
 
-impl Plugin for TinyTrace {}
+impl Plugin for Ready {}
 
 #[ctor]
 fn init() {
     PLUGIN
-        .set(Mutex::new(Box::new(TinyTrace {})))
+        .set(Mutex::new(Box::new(Ready {})))
         .map_err(|_| anyhow::anyhow!("Failed to set plugin"))
         .expect("Failed to set plugin");
 }
