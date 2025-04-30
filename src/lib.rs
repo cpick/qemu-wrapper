@@ -12,12 +12,21 @@ use std::{
     sync::Mutex,
 };
 
+const TARGET: &str = "x86_64"; // must match OPCODE instruction set
+const OPCODE: [u8; 2] = [0xe6 /* OUT */, 0xf5 /* imm8 port */]; // must match TARGET arch
+
 pub static FD: Mutex<Option<OwnedFd>> = Mutex::new(None);
 
 struct Ready {}
 
 impl Register for Ready {
-    fn register(&mut self, _id: PluginId, arguments: &Args, _info: &Info) -> Result<()> {
+    fn register(&mut self, _id: PluginId, arguments: &Args, info: &Info) -> Result<()> {
+        ensure!(
+            TARGET == info.target_name,
+            "expected target: '{TARGET}' got: '{}'",
+            info.target_name
+        );
+
         let (argument, value) = arguments
             .parsed
             .iter()
@@ -51,8 +60,6 @@ impl Register for Ready {
 
 impl HasCallbacks for Ready {
     fn on_translation_block_translate(&mut self, id: PluginId, tb: TranslationBlock) -> Result<()> {
-        const OPCODE: [u8; 2] = [0xe6 /* OUT */, 0xf5 /* imm8 port */];
-
         tb.instructions()
             .filter(|instruction| {
                 (instruction.size() == OPCODE.len()) && (instruction.data() == OPCODE)
