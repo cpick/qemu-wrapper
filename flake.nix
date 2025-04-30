@@ -77,6 +77,11 @@
 
         devShells.default = craneLib.devShell {
           checks = self.checks."${system}"; # inherit inputs
+
+          packages = [
+            # runtime dependencies
+            pkgs.qemu
+          ];
         };
 
         formatter = treefmt.wrapper;
