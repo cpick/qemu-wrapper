@@ -7,10 +7,14 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-anyhow = "1.0.98"
-ctor = "0.4.2"
-ffi = "0.1.1"
-itertools = "0.14.0"
+anyhow = { version = "1.0.98", default-features = false, features = ["std"] }
+ctor = { version = "0.4.2", default-features = false, features = [
+  "proc_macro",
+] }
+ffi = { version = "0.1.1", default-features = false }
+itertools = { version = "0.14.0", default-features = false, features = [
+  "use_std",
+] }
 qemu-plugin = { version = "9.0.0-v0", features = [
   "plugin-api-v3",
 ], default-features = false }
