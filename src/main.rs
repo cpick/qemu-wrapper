@@ -64,7 +64,7 @@ fn spawn_qemu_child(
     const PLUGIN_EXTENSION: &str = "so";
 
     let program = format!("qemu-system-{architecture}");
-    Command::new(&program)
+    let result = Command::new(&program)
         .args(
             [
                 "-chardev".to_owned(),
@@ -81,9 +81,12 @@ fn spawn_qemu_child(
             .chain(arguments),
         )
         .spawn()
-        .with_context(|| format!("spawn command: '{program}' ..."))
+        .with_context(|| format!("spawn command: '{program}' ..."));
+    drop(vm_close_on_ready); // placate clippy
+    result
 }
 
+#[allow(clippy::too_many_lines)] // FIXME:
 fn run_child(sigmask: &SigmaskGuard, mut signals: Signals) -> Result<WaitStatus> {
     // setup that must be done before spawning grandchild
     setpgid(

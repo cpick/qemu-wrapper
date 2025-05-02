@@ -1,3 +1,15 @@
+#![deny(
+    unsafe_op_in_unsafe_fn,
+    warnings,
+    clippy::all,
+    clippy::as_conversions,
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::undocumented_unsafe_blocks,
+    clippy::unnecessary_safety_comment,
+    clippy::unnecessary_safety_doc
+)]
+#![warn(clippy::pedantic)]
+
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use ctor::ctor;
 use itertools::Itertools;
@@ -21,6 +33,8 @@ struct Ready {}
 
 impl Register for Ready {
     fn register(&mut self, _id: PluginId, arguments: &Args, info: &Info) -> Result<()> {
+        const ARGUMENT_FD: &str = "fd";
+
         ensure!(
             TARGET == info.target_name,
             "expected target: '{TARGET}' got: '{}'",
@@ -33,7 +47,6 @@ impl Register for Ready {
             .exactly_one()
             .map_err(|error| anyhow!("expected argument '{ARGUMENT_FD}': {error}"))?;
 
-        const ARGUMENT_FD: &str = "fd";
         ensure!(
             ARGUMENT_FD == argument,
             "expected argument: '{ARGUMENT_FD}' got: '{argument}'"
