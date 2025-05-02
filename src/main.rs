@@ -19,12 +19,13 @@ use anyhow::{Context, Error, Result, anyhow, bail};
 use monitor_listener::MonitorListener;
 use nix::{
     errno::Errno,
+    fcntl::{FcntlArg, FdFlag, fcntl},
     sys::{
         select::{FdSet, pselect},
         signal::{Signal, kill},
         wait::{WaitPidFlag, WaitStatus, waitpid},
     },
-    unistd::{ForkResult, Pid, fork, setpgid},
+    unistd::{ForkResult, Pid, fork, pipe, setpgid},
 };
 use sigmask_guard::SigmaskGuard;
 use signal_hook::{
@@ -36,8 +37,11 @@ use std::{
     env::args,
     io::Write as _,
     os::{
-        fd::AsFd,
-        unix::process::{ExitStatusExt as _, parent_id},
+        fd::{AsFd, AsRawFd, OwnedFd},
+        unix::{
+            net::UnixStream,
+            process::{ExitStatusExt as _, parent_id},
+        },
     },
     process::{Child, Command, ExitCode},
 };
@@ -50,7 +54,15 @@ fn spawn_qemu_child(
     architecture: &str,
     arguments: impl IntoIterator<Item = String>,
     listener_path: &str,
+    vm_close_on_ready: OwnedFd,
 ) -> Result<Child> {
+    #[cfg(target_os = "macos")]
+    const PLUGIN_EXTENSION: &str = "dylib";
+    #[cfg(target_os = "windows")]
+    const PLUGIN_EXTENSION: &str = "dll";
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    const PLUGIN_EXTENSION: &str = "so";
+
     let program = format!("qemu-system-{architecture}");
     Command::new(&program)
         .args(
@@ -59,6 +71,11 @@ fn spawn_qemu_child(
                 format!("socket,id=mon0,path={listener_path},server=off"),
                 "-mon".to_owned(),
                 "chardev=mon0".to_owned(),
+                "-plugin".to_owned(),
+                format!(
+                    "libqemu_plugin_ready.{PLUGIN_EXTENSION},fd={}",
+                    vm_close_on_ready.as_raw_fd()
+                ),
             ]
             .into_iter()
             .chain(arguments),
@@ -77,21 +94,51 @@ fn run_child(sigmask: &SigmaskGuard, mut signals: Signals) -> Result<WaitStatus>
     let listener = MonitorListener::new().context("new monitor socket")?;
     let mut terminal = TerminalGuard::new().context("new terminal guard")?;
 
+    let (vm_close_on_ready_reader, vm_close_on_ready_writer) = pipe().context("pipe")?;
+    // set FD_CLOEXEC so child doesn't inherit file descriptor
+    fcntl(
+        vm_close_on_ready_reader.as_raw_fd(),
+        FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC),
+    )
+    .map(drop)
+    .context("fcntl set fd")?;
+
     // spawn grandchild
     let mut arguments = args().skip(1 /* argv[0] */);
     let architecture = arguments
         .next()
         .ok_or_else(|| anyhow!("missing <guest_architecture> argument"))?;
-    let mut grandchild = spawn_qemu_child(&architecture, arguments, listener.path())
-        .context("spawn qemu grandchild")?;
+    let mut grandchild = spawn_qemu_child(
+        &architecture,
+        arguments,
+        listener.path(),
+        vm_close_on_ready_writer,
+    )
+    .context("spawn qemu grandchild")?;
 
     // handle events
     let mut listener = Some(listener);
-    let mut monitor = None;
+    let mut monitor = Option::<UnixStream>::None;
+    let mut vm_close_on_ready = Some(vm_close_on_ready_reader);
+    let mut powerdown_grandchild = false;
     loop {
+        // if powerdown requested and grandchild's VM is ready for powerdown message
+        if powerdown_grandchild && vm_close_on_ready.is_none() {
+            // and grandchild has connected to monitor
+            if let Some(monitor) = &mut monitor {
+                // request powerdown
+                monitor
+                    .write_all(b"system_powerdown\n")
+                    .context("write system powerdown")?;
+            }
+        }
+
         let mut fds = FdSet::new();
         if let Some(listener) = &listener {
             fds.insert(listener.as_fd());
+        }
+        if let Some(vm_close_on_ready) = &vm_close_on_ready {
+            fds.insert(vm_close_on_ready.as_fd());
         }
 
         // wait for event
@@ -104,18 +151,33 @@ fn run_child(sigmask: &SigmaskGuard, mut signals: Signals) -> Result<WaitStatus>
             Some(sigmask.previous()),
         ) {
             // monitor connection
-            Ok(fds_length) => {
-                assert_eq!(fds_length, 1, "unexpected fds length");
-                assert!(fds.contains(listener.as_ref().expect("listener as ref").as_fd()));
+            Ok(mut fds_length) => {
+                let contains_vm_close_on_ready = vm_close_on_ready
+                    .as_ref()
+                    .is_some_and(|fd| fds.contains(fd.as_fd()));
 
-                let previous = monitor.replace(
-                    listener
-                        .take()
-                        .expect("take listener")
-                        .accept()
-                        .context("listener accept monitor")?,
-                );
-                assert!(previous.is_none(), "monitor already accepted");
+                if listener.as_ref().is_some_and(|fd| fds.contains(fd.as_fd())) {
+                    fds_length -= 1;
+
+                    let previous = monitor.replace(
+                        listener
+                            .take()
+                            .expect("take listener")
+                            .accept()
+                            .context("listener accept monitor")?,
+                    );
+                    assert!(previous.is_none(), "monitor already accepted");
+                }
+
+                if contains_vm_close_on_ready {
+                    fds_length -= 1;
+
+                    println!("QEMU has signaled that VM is ready");
+
+                    drop(vm_close_on_ready.take());
+                }
+
+                assert_eq!(fds_length, 0, "unexpected fds length");
             }
 
             // signal(s)
@@ -166,12 +228,14 @@ fn run_child(sigmask: &SigmaskGuard, mut signals: Signals) -> Result<WaitStatus>
                         SIGTTIN | SIGTTOU => (), // carry on, don't stop process
 
                         // powerdown or kill grandchild
-                        _signal => match &mut monitor {
-                            Some(monitor) => monitor
-                                .write_all(b"system_powerdown\n")
-                                .context("write system powerdown")?,
-                            None => grandchild.kill().context("kill grandchild")?,
-                        },
+                        _signal => {
+                            // if subsequent request
+                            if powerdown_grandchild {
+                                grandchild.kill().context("kill grandchild")?;
+                            } else {
+                                powerdown_grandchild = true;
+                            }
+                        }
                     }
                 }
             }

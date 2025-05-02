@@ -29,6 +29,7 @@
 
         commonArgs = {
           inherit src;
+          cargoExtraArgs = "--locked --workspace";
           strictDeps = true;
         };
 
@@ -37,13 +38,58 @@
           inherit cargoArtifacts;
         };
 
+        qemuPluginReadySrcDir = ./qemu-plugin-ready;
+
+        qemu-plugin-ready = craneLib.buildPackage (
+          commonArgsAndCargoArtifacts
+          // {
+            inherit (craneLib.crateNameFromCargoToml { src = qemuPluginReadySrcDir; }) pname version;
+
+            cargoExtraArgs = "--locked -p qemu-plugin-ready";
+
+            patches = [
+              (pkgs.writeText "empty-src-main-rs.patch" ''
+                diff --git a/src/main.rs b/src/main.rs
+                new file mode 100644
+              '')
+            ];
+
+            src = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions [
+                ./.cargo/config.toml
+                ./Cargo.toml
+                ./Cargo.lock
+                (craneLib.fileset.commonCargoSources qemuPluginReadySrcDir)
+              ];
+            };
+          }
+        );
+
+        libraryPathEnvVar =
+          if pkgs.stdenv.hostPlatform.isDarwin then "DYLD_FALLBACK_LIBRARY_PATH" else "LD_LIBRARY_PATH";
+
         qemu-wrapper = craneLib.buildPackage (
           commonArgsAndCargoArtifacts
           // {
-            postInstall = ''
-              wrapProgram $out/bin/qemu-wrapper --prefix PATH : ${lib.makeBinPath [ pkgs.qemu ]}
-            '';
+            cargoExtraArgs = "--locked";
             nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
+
+            postInstall = ''
+              wrapProgram $out/bin/qemu-wrapper \
+                --prefix PATH : ${lib.makeBinPath [ pkgs.qemu ]} \
+                --prefix ${libraryPathEnvVar} : ${lib.makeLibraryPath [ qemu-plugin-ready ]}
+            '';
+
+            src = lib.cleanSourceWith {
+              filter =
+                name: type:
+                (name != qemuPluginReadySrcDir)
+                || !(lib.assertMsg (
+                  type == "directory"
+                ) "qemuPluginReadySrcDir: '${qemuPluginReadySrcDir}' has non-directory type: '${type}'");
+              src = craneLib.cleanCargoSource commonArgs.src;
+            };
           }
         );
 
@@ -63,7 +109,7 @@
       in
       {
         checks = {
-          inherit qemu-wrapper; # check build
+          inherit qemu-plugin-ready qemu-wrapper; # check build
 
           formatting = treefmt.check self;
           qemu-wrapper-clippy = craneLib.cargoClippy commonArgsAndCargoArtifacts;
@@ -71,7 +117,7 @@
         };
 
         packages = {
-          inherit qemu-wrapper;
+          inherit qemu-plugin-ready qemu-wrapper;
           default = qemu-wrapper;
         };
 
