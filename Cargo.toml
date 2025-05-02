@@ -1,3 +1,7 @@
+[workspace]
+members = ["qemu-plugin-ready"]
+resolver = "3"
+
 [package]
 name = "qemu-wrapper"
 version = "0.1.0"
