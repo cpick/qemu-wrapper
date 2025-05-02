@@ -71,6 +71,8 @@ fn spawn_qemu_child(
                 format!("socket,id=mon0,path={listener_path},server=off"),
                 "-mon".to_owned(),
                 "chardev=mon0".to_owned(),
+                "-device".to_owned(),
+                "isa-debug-exit,iobase=0xf4,iosize=0x01".to_owned(),
                 "-plugin".to_owned(),
                 format!(
                     "libqemu_plugin_ready.{PLUGIN_EXTENSION},fd={}",
@@ -88,6 +90,11 @@ fn spawn_qemu_child(
 
 #[allow(clippy::too_many_lines)] // FIXME:
 fn run_child(sigmask: &SigmaskGuard, mut signals: Signals) -> Result<WaitStatus> {
+    const EXIT_CODE_SUCCESS: i32 = 0;
+    const EXIT_CODE_FAILURE: i32 = 1;
+    const EXIT_CODE_QEMU_POWERDOWN: i32 = EXIT_CODE_SUCCESS;
+    const EXIT_CODE_QEMU_ISA_DEBUG: i32 = 7;
+
     // setup that must be done before spawning grandchild
     setpgid(
         Pid::from_raw(0 /* this process id */),
@@ -202,6 +209,17 @@ fn run_child(sigmask: &SigmaskGuard, mut signals: Signals) -> Result<WaitStatus>
                                         ),
                                         status.into_raw(),
                                     )
+                                    .map(|status| match status {
+                                        WaitStatus::Exited(
+                                            process_id,
+                                            EXIT_CODE_QEMU_POWERDOWN,
+                                        ) => WaitStatus::Exited(process_id, EXIT_CODE_FAILURE),
+                                        WaitStatus::Exited(
+                                            process_id,
+                                            EXIT_CODE_QEMU_ISA_DEBUG,
+                                        ) => WaitStatus::Exited(process_id, EXIT_CODE_SUCCESS),
+                                        status => status,
+                                    })
                                     .context("wait status from raw");
                                 }
                             }
