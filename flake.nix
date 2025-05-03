@@ -57,7 +57,6 @@
         craneLib = ((crane.mkLib pkgs).overrideToolchain toolchain);
         src = craneLib.cleanCargoSource ./.;
         rootCargoSources = [
-          ./.cargo/config.toml
           ./Cargo.lock
           ./Cargo.toml
         ];
