@@ -228,7 +228,10 @@ fn run_child(sigmask: &SigmaskGuard, mut signals: Signals) -> Result<WaitStatus>
                         // ctr+z (paused)
                         signal @ SIGTSTP => {
                             if parent_id()
-                                == siginfo.si_pid.try_into().expect("siginfo pid try into")
+                                // SAFETY: field should always be present
+                                == unsafe { siginfo.si_pid() }
+                                    .try_into()
+                                    .expect("siginfo pid try into")
                             {
                                 let _reset = terminal
                                     .stop_child_and_reset_guard(&mut grandchild)
