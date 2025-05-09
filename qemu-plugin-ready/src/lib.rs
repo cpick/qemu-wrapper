@@ -75,7 +75,12 @@ impl HasCallbacks for Ready {
     fn on_translation_block_translate(&mut self, id: PluginId, tb: TranslationBlock) -> Result<()> {
         tb.instructions()
             .filter(|instruction| {
-                (instruction.size() == OPCODE.len()) && (instruction.data() == OPCODE)
+                if instruction.size() != OPCODE.len() {
+                    return false;
+                }
+
+                let mut data = [0; OPCODE.len()];
+                (instruction.read_data(&mut data) == OPCODE.len()) && (data == OPCODE)
             })
             .for_each(move |instruction| {
                 instruction.register_execute_callback(move |_vcpu| {
