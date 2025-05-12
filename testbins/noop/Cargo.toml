@@ -1,0 +1,9 @@
+[workspace]
+# intentionally empty, see: https://github.com/rust-lang/cargo/issues/10872#issuecomment-1188590433
+
+[package]
+name = "noop"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
