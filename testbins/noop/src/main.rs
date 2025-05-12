@@ -1,6 +1,9 @@
 #![no_main]
 #![no_std]
 
+use log::{info, warn};
+use uefi::{Status, entry};
+
 const PORT_DATA: u8 = {
     const EXIT_CODE: u8 = 7; // must match qemu-wrapper's EXIT_CODE
 
@@ -17,13 +20,11 @@ const PORT_DATA: u8 = {
 // usually unused: https://os.phil-opp.com/testing/#i-o-ports
 const PORT: u8 = 0xf4;
 
-#[panic_handler]
-fn panic_handler(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
+#[entry]
+fn main() -> Status {
+    uefi::helpers::init().unwrap();
 
-#[unsafe(export_name = "efi_main")]
-pub extern "C" fn main(_h: *mut core::ffi::c_void, _st: *mut core::ffi::c_void) -> usize {
+    info!("exiting");
     // SAFETY: writing to (low?) port seems safe?
     unsafe {
         // must match qemu-wrapper's ready plugin's OPCODE
@@ -35,5 +36,6 @@ pub extern "C" fn main(_h: *mut core::ffi::c_void, _st: *mut core::ffi::c_void) 
         );
     }
 
-    0
+    warn!("unexpectedly alive");
+    Status::SUCCESS
 }
