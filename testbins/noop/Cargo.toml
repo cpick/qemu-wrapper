@@ -7,5 +7,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-log = "0.4.27"
-uefi = { version = "0.35.0", features = ["panic_handler", "logger"] }
+acpi = { version = "5.2.0", default-features = false }
+log = { version = "0.4.27", default-features = false }
+uefi = { version = "0.35.0", default-features = false, features = [
+  "panic_handler",
+  "logger",
+] }
