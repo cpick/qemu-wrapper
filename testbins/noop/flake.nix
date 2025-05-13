@@ -49,11 +49,29 @@
 
         commonArgs = {
           inherit src;
+          doCheck = false;
           strictDeps = true;
           CARGO_BUILD_TARGET = cargoConfig.build.target;
         };
 
-        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        cargoArtifacts = craneLib.buildDepsOnly (
+          commonArgs
+          // {
+            dummyrs = pkgs.writeText "dummy.rs" ''
+              #![cfg_attr(target_os = "uefi", no_std)]
+              #![cfg_attr(target_os = "uefi", no_main)]
+
+              #[cfg(target_os = "uefi")]
+              #[uefi::entry]
+              fn main() -> uefi::Status {
+                  uefi::Status::SUCCESS
+              }
+
+              #[cfg(not(target_os = "uefi"))]
+              fn main() {}
+            '';
+          }
+        );
         commonArgsAndCargoArtifacts = commonArgs // {
           inherit cargoArtifacts;
         };
