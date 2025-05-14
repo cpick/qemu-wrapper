@@ -1,6 +1,12 @@
 {
   inputs = {
     crane.url = "github:ipetkov/crane";
+
+    fenix = {
+      inputs.nixpkgs.follows = "nixpkgs";
+      url = "github:nix-community/fenix";
+    };
+
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
 
@@ -14,6 +20,7 @@
     {
       self,
       crane,
+      fenix,
       flake-utils,
       nixpkgs,
       treefmt-nix,
@@ -24,7 +31,18 @@
         pkgs = nixpkgs.legacyPackages."${system}";
         inherit (pkgs) lib;
 
-        craneLib = crane.mkLib pkgs;
+        toolchain =
+          let
+            fenixPkgs = fenix.packages."${system}";
+          in
+          fenixPkgs.combine [
+            fenixPkgs.stable.cargo
+            fenixPkgs.stable.clippy
+            fenixPkgs.stable.rustc
+            fenixPkgs.targets.x86_64-unknown-uefi.stable.rust-std
+          ];
+
+        craneLib = ((crane.mkLib pkgs).overrideToolchain toolchain);
         src = craneLib.cleanCargoSource ./.;
 
         commonArgs = {
