@@ -20,7 +20,12 @@ signal-hook = { version = "0.3.17", default-features = false, features = [
 ] }
 
 [dev-dependencies]
+serde = { version = "1.0.219", default-features = false, features = [
+  "derive",
+  "std",
+] }
 test-binary = { version = "3.0.2", default-features = false }
+toml = { version = "0.8.22", default-features = false, features = ["parse"] }
 
 [patch.crates-io]
 # FIXME: remove once merged and released:
