@@ -76,7 +76,7 @@
           inherit cargoArtifacts;
         };
 
-        noop = craneLib.buildPackage commonArgsAndCargoArtifacts;
+        test-guest = craneLib.buildPackage commonArgsAndCargoArtifacts;
 
         treefmt =
           (treefmt-nix.lib.evalModule pkgs {
@@ -94,7 +94,7 @@
       in
       {
         checks = {
-          inherit noop; # check build
+          inherit test-guest; # check build
 
           formatting = treefmt.check self;
           qemu-wrapper-clippy = craneLib.cargoClippy commonArgsAndCargoArtifacts;
@@ -102,8 +102,8 @@
         };
 
         packages = {
-          inherit noop;
-          default = noop;
+          inherit test-guest;
+          default = test-guest;
         };
 
         devShells.default = craneLib.devShell {

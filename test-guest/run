@@ -9,7 +9,7 @@ ESP_DIR='esp'
 BOOT_DIR="${ESP_DIR}/efi/boot"
 mkdir -p "${BOOT_DIR}"
 
-ln -f target/x86_64-unknown-uefi/debug/noop.efi "${BOOT_DIR}/bootx64.efi"
+ln -f target/x86_64-unknown-uefi/debug/orderly.efi "${BOOT_DIR}/bootx64.efi"
 
 OVMF_DIR="$(dirname "$(which qemu-system-x86_64)")/../share/qemu"
 exec qemu-system-x86_64 \

@@ -1,6 +1,6 @@
 use std::{
     env, fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{self, Command},
 };
 
@@ -19,21 +19,21 @@ struct Config {
 
 #[test]
 fn main() {
-    let name = "noop";
-    let source_dir = PathBuf::from_iter(["testbins", &name]);
+    let name = "orderly";
+    let test_guest_dir = Path::new("test-guest");
 
     let config = {
         let mut config = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        config.extend([&*source_dir, ".cargo".as_ref(), "config.toml".as_ref()]);
+        config.extend([&*test_guest_dir, ".cargo".as_ref(), "config.toml".as_ref()]);
 
         let config = fs::read_to_string(config).expect("read to string config");
         toml::from_str::<Config>(&config).expect("toml from str config")
     };
 
-    let noop = TestBinary::relative_to_parent(name, &source_dir.join("Cargo.toml"))
+    let orderly = TestBinary::relative_to_parent(name, &test_guest_dir.join("Cargo.toml"))
         .with_target(&config.build.target)
         .build()
-        .expect("build test binary noop");
+        .expect("build test binary orderly");
 
     let esp_dir = scopeguard::guard(
         PathBuf::from_iter([
@@ -49,7 +49,7 @@ fn main() {
         boot.extend(["efi", "boot"]);
         fs::create_dir_all(&boot).expect("create dir all boot");
         boot.push("bootx64.efi");
-        fs::hard_link(noop, boot).expect("hard link noop boot");
+        fs::hard_link(orderly, boot).expect("hard link orderly boot");
     }
 
     const QEMU: &str = "qemu-system-x86_64";
@@ -78,6 +78,6 @@ fn main() {
             "-no-reboot",
         ])
         .status()
-        .expect("command noop status");
+        .expect("command orderly status");
     assert_eq!(Some(7), status.code());
 }
