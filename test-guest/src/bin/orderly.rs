@@ -27,13 +27,20 @@ const PORT_DATA: u8 = {
 
     EXIT_CODE >> 1
 };
-const PORT_DATA_SIZE: u8 = size_of_val(&PORT_DATA) as u8;
 
 // must match QEMU's isa-debug-exit device's iobase
 const PORT_EXIT: u8 = include!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/port-exit"));
 
 // must match qemu-wrapper's ready plugin's OPCODE
-const PORT_READY_FOR_EXIT_SIGNAL: u8 = PORT_EXIT.checked_add(PORT_DATA_SIZE).expect("port ready");
+const PORT_READY_FOR_EXIT_SIGNAL: u8 = include!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/config/port-ready-for-exit-signal"
+));
+
+const _: () = assert!(
+    PORT_EXIT != PORT_READY_FOR_EXIT_SIGNAL,
+    "PORT_EXIT and PORT_READY_FOR_EXIT_SIGNAL must be different"
+);
 
 #[derive(Clone)]
 struct DirectHandler {}
