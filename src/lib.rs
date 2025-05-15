@@ -15,7 +15,7 @@ mod sigmask_guard;
 mod stop_guard;
 mod terminal_guard;
 
-use anyhow::{Context, Error, Result, anyhow};
+use anyhow::{Context, Error, Result, anyhow, bail};
 use monitor_listener::MonitorListener;
 use nix::{
     errno::Errno,
@@ -34,6 +34,7 @@ use signal_hook::{
     low_level::emulate_default_handler,
 };
 use std::{
+    convert::Infallible,
     ffi::{OsStr, OsString},
     io::Write as _,
     os::{
@@ -43,7 +44,7 @@ use std::{
             process::{ExitStatusExt as _, parent_id},
         },
     },
-    process::{Child, Command},
+    process::{self, Child, Command},
 };
 use stop_guard::StopGuard;
 use terminal_guard::TerminalGuard;
@@ -292,7 +293,11 @@ pub fn run(arguments: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Result<Wai
     // SAFETY: safe in a singly-threaded process
     let child = match unsafe { fork() }.context("fork")? {
         ForkResult::Parent { child } => child,
-        ForkResult::Child => return run_child(arguments, &sigmask, signals).context("run child"),
+        ForkResult::Child => bail!(
+            mimic_wait_status(run_child(arguments, &sigmask, signals).context("run child")?)
+                .context("child mimic wait status")
+                .expect_err("mimic wait status succeeded unexpectedly")
+        ),
     };
     drop(sigmask); // unblock
 
@@ -322,4 +327,16 @@ pub fn run(arguments: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Result<Wai
         }
     }
     unreachable!("signals iterator ended");
+}
+
+pub fn mimic_wait_status(status: WaitStatus) -> Result<Infallible> {
+    match status {
+        WaitStatus::Exited(_process_id, code) => process::exit(code),
+        WaitStatus::Signaled(_process_id, signal, _dumped_core) => {
+            #[allow(clippy::as_conversions)]
+            emulate_default_handler(signal as i32).context("emulate default fatal handler")?;
+            panic!("non-fatal signal: {signal}");
+        }
+        status => bail!("wait status unexpected: {status:?}"),
+    }
 }

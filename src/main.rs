@@ -10,21 +10,10 @@
 )]
 #![warn(clippy::pedantic)]
 
-use anyhow::{Context, Result, bail};
-use nix::sys::wait::WaitStatus;
-use signal_hook::low_level::emulate_default_handler;
-use std::{env, process::ExitCode};
+use anyhow::{Context, Result};
+use std::{convert::Infallible, env};
 
-fn main() -> Result<ExitCode> {
-    match qemu_wrapper::run(env::args()).context("run")? {
-        WaitStatus::Exited(_process_id, code) => {
-            Ok(u8::try_from(code).expect("exit code try from u8").into())
-        }
-        WaitStatus::Signaled(_process_id, signal, _dumped_core) => {
-            #[allow(clippy::as_conversions)]
-            emulate_default_handler(signal as i32).context("emulate default fatal handler")?;
-            panic!("non-fatal signal: {signal}");
-        }
-        status => bail!("wait status unexpected: {status:?}"),
-    }
+fn main() -> Result<Infallible> {
+    qemu_wrapper::mimic_wait_status(qemu_wrapper::run(env::args()).context("run")?)
+        .context("mimic wait status")
 }
