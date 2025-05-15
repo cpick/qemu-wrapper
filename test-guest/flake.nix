@@ -45,7 +45,13 @@
           ];
 
         craneLib = ((crane.mkLib pkgs).overrideToolchain toolchain);
-        src = craneLib.cleanCargoSource ./.;
+        src = lib.fileset.toSource {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            ./config
+            (craneLib.fileset.commonCargoSources ./.)
+          ];
+        };
 
         commonArgs = {
           inherit src;

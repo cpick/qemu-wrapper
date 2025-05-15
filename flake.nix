@@ -44,6 +44,11 @@
 
         craneLib = ((crane.mkLib pkgs).overrideToolchain toolchain);
         src = craneLib.cleanCargoSource ./.;
+        rootCargoSources = [
+          ./.cargo/config.toml
+          ./Cargo.lock
+          ./Cargo.toml
+        ];
 
         commonArgs = {
           inherit src;
@@ -74,12 +79,12 @@
 
             src = lib.fileset.toSource {
               root = ./.;
-              fileset = lib.fileset.unions [
-                ./.cargo/config.toml
-                ./Cargo.toml
-                ./Cargo.lock
-                (craneLib.fileset.commonCargoSources qemuPluginReadySrcDir)
-              ];
+              fileset = lib.fileset.unions (
+                rootCargoSources
+                ++ [
+                  (craneLib.fileset.commonCargoSources qemuPluginReadySrcDir)
+                ]
+              );
             };
           }
         );
@@ -99,14 +104,24 @@
                 --prefix ${libraryPathEnvVar} : ${lib.makeLibraryPath [ qemu-plugin-ready ]}
             '';
 
-            src = lib.cleanSourceWith {
-              filter =
-                name: type:
-                (name != qemuPluginReadySrcDir)
-                || !(lib.assertMsg (
-                  type == "directory"
-                ) "qemuPluginReadySrcDir: '${qemuPluginReadySrcDir}' has non-directory type: '${type}'");
-              src = craneLib.cleanCargoSource commonArgs.src;
+            patches = [
+              (pkgs.writeText "empty-plugin-lib-rs.patch" ''
+                diff --git a/qemu-plugin-ready/src/lib.rs b/qemu-plugin-ready/src/lib.rs
+                new file mode 100644
+              '')
+            ];
+
+            src = lib.fileset.toSource {
+              root = ./.;
+              fileset = lib.fileset.unions (
+                rootCargoSources
+                ++ [
+                  ./test-guest/config
+                  (craneLib.fileset.cargoTomlAndLock qemuPluginReadySrcDir)
+                  (craneLib.fileset.commonCargoSources ./src)
+                  (craneLib.fileset.commonCargoSources ./tests)
+                ]
+              );
             };
           }
         );

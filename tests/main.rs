@@ -62,6 +62,12 @@ fn main() {
     ovmf_dir.pop(); // bin
     ovmf_dir.extend(["share", "qemu"]);
 
+    // must match guest's config
+    const PORT_EXIT: u8 = include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/test-guest/config/port-exit"
+    ));
+
     let status = Command::new(QEMU)
         .args([
             "-drive",
@@ -86,7 +92,7 @@ fn main() {
                 esp_dir.to_str().expect("esp dir to str")
             ),
             "-device",
-            "isa-debug-exit,iobase=0xf4,iosize=0x01",
+            &format!("isa-debug-exit,iobase={PORT_EXIT:#04x},iosize=0x01"),
             "-nic",
             "none",
             "-nographic",

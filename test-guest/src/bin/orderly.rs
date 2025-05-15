@@ -28,10 +28,8 @@ const PORT_DATA: u8 = {
 };
 const PORT_DATA_SIZE: u8 = size_of_val(&PORT_DATA) as u8;
 
-// usually unused: https://os.phil-opp.com/testing/#i-o-ports
-const PORT_BASE: u8 = 0xf4;
-
-const PORT_EXIT: u8 = PORT_BASE; // must match QEMU's isa-debug-exit device's iobase
+// must match QEMU's isa-debug-exit device's iobase
+const PORT_EXIT: u8 = include!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/port-exit"));
 
 // must match qemu-wrapper's ready plugin's OPCODE
 const PORT_READY_FOR_EXIT_SIGNAL: u8 = PORT_EXIT.checked_add(PORT_DATA_SIZE).expect("port ready");
