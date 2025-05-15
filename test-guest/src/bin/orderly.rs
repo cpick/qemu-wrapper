@@ -15,7 +15,8 @@ use log::{info, trace};
 use uefi::{Status, boot, entry, helpers, system, table::cfg};
 
 const PORT_DATA: u8 = {
-    const EXIT_CODE: u8 = 7; // must match qemu-wrapper's EXIT_CODE
+    // must match qemu-wrapper's EXIT_CODE
+    const EXIT_CODE: u8 = include!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/exit-code"));
 
     // QEMU takes the value written to the port and multiplies by 2 and adds 1, reverse the process:
     // https://gitlab.com/qemu-project/qemu/-/blob/019fbfa4bcd2d3a835c241295e22ab2b5b56129b/hw/misc/debugexit.c#L36-L37

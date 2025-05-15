@@ -100,5 +100,11 @@ fn main() {
         ])
         .status()
         .expect("command orderly status");
-    assert_eq!(Some(7), status.code());
+
+    // must match guest's config
+    const EXIT_CODE: u8 = include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/test-guest/config/exit-code"
+    ));
+    assert_eq!(Some(EXIT_CODE.into()), status.code());
 }
