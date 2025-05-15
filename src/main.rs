@@ -13,10 +13,10 @@
 use anyhow::{Context, Result, bail};
 use nix::sys::wait::WaitStatus;
 use signal_hook::low_level::emulate_default_handler;
-use std::process::ExitCode;
+use std::{env, process::ExitCode};
 
 fn main() -> Result<ExitCode> {
-    match qemu_wrapper::run().context("run")? {
+    match qemu_wrapper::run(env::args()).context("run")? {
         WaitStatus::Exited(_process_id, code) => {
             Ok(u8::try_from(code).expect("exit code try from u8").into())
         }

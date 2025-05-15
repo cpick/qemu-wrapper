@@ -34,7 +34,7 @@ use signal_hook::{
     low_level::emulate_default_handler,
 };
 use std::{
-    env,
+    ffi::{OsStr, OsString},
     io::Write as _,
     os::{
         fd::{AsFd, AsRawFd, OwnedFd},
@@ -51,8 +51,8 @@ use terminal_guard::TerminalGuard;
 type Signals = SignalsInfo<WithRawSiginfo>;
 
 fn spawn_qemu_child(
-    architecture: &str,
-    arguments: impl IntoIterator<Item = String>,
+    architecture: &OsStr,
+    arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
     listener_path: &str,
     vm_close_on_ready: OwnedFd,
 ) -> Result<Child> {
@@ -63,33 +63,35 @@ fn spawn_qemu_child(
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     const PLUGIN_EXTENSION: &str = "so";
 
-    let program = format!("qemu-system-{architecture}");
+    let mut program = OsString::from("qemu-system-");
+    program.push(architecture);
     let result = Command::new(&program)
-        .args(
-            [
-                "-chardev".to_owned(),
-                format!("socket,id=mon0,path={listener_path},server=off"),
-                "-mon".to_owned(),
-                "chardev=mon0".to_owned(),
-                "-device".to_owned(),
-                "isa-debug-exit,iobase=0xf4,iosize=0x01".to_owned(),
-                "-plugin".to_owned(),
-                format!(
-                    "libqemu_plugin_ready.{PLUGIN_EXTENSION},fd={}",
-                    vm_close_on_ready.as_raw_fd()
-                ),
-            ]
-            .into_iter()
-            .chain(arguments),
-        )
+        .args([
+            "-chardev",
+            &format!("socket,id=mon0,path={listener_path},server=off"),
+            "-mon",
+            "chardev=mon0",
+            "-device",
+            "isa-debug-exit,iobase=0xf4,iosize=0x01",
+            "-plugin",
+            &format!(
+                "libqemu_plugin_ready.{PLUGIN_EXTENSION},fd={}",
+                vm_close_on_ready.as_raw_fd()
+            ),
+        ])
+        .args(arguments)
         .spawn()
-        .with_context(|| format!("spawn command: '{program}' ..."));
+        .with_context(|| format!("spawn command: '{program:?}' ..."));
     drop(vm_close_on_ready); // placate clippy
     result
 }
 
 #[allow(clippy::too_many_lines)] // FIXME:
-fn run_child(sigmask: &SigmaskGuard, mut signals: Signals) -> Result<WaitStatus> {
+fn run_child(
+    arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
+    sigmask: &SigmaskGuard,
+    mut signals: Signals,
+) -> Result<WaitStatus> {
     const EXIT_CODE_SUCCESS: i32 = 0;
     const EXIT_CODE_FAILURE: i32 = 1;
     const EXIT_CODE_QEMU_POWERDOWN: i32 = EXIT_CODE_SUCCESS;
@@ -114,12 +116,12 @@ fn run_child(sigmask: &SigmaskGuard, mut signals: Signals) -> Result<WaitStatus>
     .context("fcntl set fd")?;
 
     // spawn grandchild
-    let mut arguments = env::args().skip(1 /* argv[0] */);
+    let mut arguments = arguments.into_iter().skip(1 /* argv[0] */);
     let architecture = arguments
         .next()
         .ok_or_else(|| anyhow!("missing <guest_architecture> argument"))?;
     let mut grandchild = spawn_qemu_child(
-        &architecture,
+        architecture.as_ref(),
         arguments,
         listener.path(),
         vm_close_on_ready_writer,
@@ -270,7 +272,7 @@ fn run_child(sigmask: &SigmaskGuard, mut signals: Signals) -> Result<WaitStatus>
     }
 }
 
-pub fn run() -> Result<WaitStatus> {
+pub fn run(arguments: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Result<WaitStatus> {
     // block signals before spawning child
     let signals = [
         SIGHUP, SIGINT, SIGQUIT, SIGTERM, // powerdown grandchild
@@ -290,7 +292,7 @@ pub fn run() -> Result<WaitStatus> {
     // SAFETY: safe in a singly-threaded process
     let child = match unsafe { fork() }.context("fork")? {
         ForkResult::Parent { child } => child,
-        ForkResult::Child => return run_child(&sigmask, signals).context("run child"),
+        ForkResult::Child => return run_child(arguments, &sigmask, signals).context("run child"),
     };
     drop(sigmask); // unblock
 
