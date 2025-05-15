@@ -40,9 +40,13 @@ fn main() {
             env!("CARGO_TARGET_TMPDIR"),
             &format!("esp-{}", process::id()),
         ]),
-        |dir| fs::remove_dir_all(dir).expect("remove dir all"),
+        |dir| fs::remove_dir_all(dir).expect("cleanup remove dir all esp"),
     );
-    // FIXME: warn and remove if already exists
+    match fs::remove_dir_all(&*esp_dir) {
+        Err(ref error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => panic!("prepare remove dir all esp {error:?}"),
+        Ok(_) => (),
+    }
 
     {
         let mut boot = esp_dir.clone();
