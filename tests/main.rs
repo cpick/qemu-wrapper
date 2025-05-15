@@ -61,14 +61,25 @@ fn main() {
     ovmf_dir.pop(); // filename
     ovmf_dir.pop(); // bin
     ovmf_dir.extend(["share", "qemu"]);
-    let ovmf_dir = ovmf_dir.to_str().expect("ovmf dir to str");
 
     let status = Command::new(QEMU)
         .args([
             "-drive",
-            &format!("if=pflash,format=raw,readonly=on,file={ovmf_dir}/edk2-x86_64-code.fd"),
+            &format!(
+                "if=pflash,format=raw,readonly=on,file={}",
+                ovmf_dir
+                    .join("edk2-x86_64-code.fd")
+                    .to_str()
+                    .expect("ovmf code to str")
+            ),
             "-drive",
-            &format!("if=pflash,format=raw,readonly=on,file={ovmf_dir}/edk2-i386-vars.fd"),
+            &format!(
+                "if=pflash,format=raw,readonly=on,file={}",
+                ovmf_dir
+                    .join("edk2-i386-vars.fd")
+                    .to_str()
+                    .expect("ovmf vars to str")
+            ),
             "-drive",
             &format!(
                 "format=raw,file=fat:rw:{}",
