@@ -16,6 +16,7 @@ mod stop_guard;
 mod terminal_guard;
 
 use anyhow::{Context, Error, Result, anyhow, bail};
+use log::info;
 use monitor_listener::MonitorListener;
 use nix::{
     errno::Errno,
@@ -210,7 +211,7 @@ impl QemuWrapper {
                     if contains_vm_close_on_ready {
                         fds_length -= 1;
 
-                        println!("QEMU has signaled that VM is ready");
+                        info!("QEMU has signaled that VM is ready");
 
                         drop(vm_close_on_ready.take());
                     }
