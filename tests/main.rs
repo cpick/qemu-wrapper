@@ -76,6 +76,12 @@ fn main() {
         "/test-guest/config/port-exit"
     ));
 
+    // must match guest's config
+    const EXIT_CODE: u8 = include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/test-guest/config/exit-code"
+    ));
+
     let qemu_wrapper = QemuWrapper::new().expect("qemu wrapper new");
     signal::raise(Signal::SIGINT).expect("signal raise");
 
@@ -84,6 +90,8 @@ fn main() {
             &env::args().next().expect("env args next"), // arbitrary
             "--exit-port",
             &format!("{PORT_EXIT:#04x}"),
+            "--exit-code",
+            &EXIT_CODE.to_string(),
             "x86_64",
             "-drive",
             &format!(
@@ -112,12 +120,6 @@ fn main() {
             "-no-reboot",
         ])
         .expect("run orderly status");
-
-    // must match guest's config
-    const EXIT_CODE: u8 = include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/test-guest/config/exit-code"
-    ));
     assert!(
         matches!(status, WaitStatus::Exited(_process_id, 0)),
         "unexpected status: {status:?}"

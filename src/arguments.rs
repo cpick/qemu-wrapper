@@ -1,3 +1,5 @@
+use std::num::NonZeroU8;
+
 use anyhow::{Context, Error, Result, anyhow};
 use gumdrop::{Options, ParsingStyle};
 
@@ -18,6 +20,9 @@ struct Raw {
     #[options(parse(try_from_str = "parse_hex"))]
     exit_port: Option<u8>,
 
+    /// status code expected from QEMU on successful exit
+    exit_code: Option<NonZeroU8>,
+
     /// guest architecture (eg: "x86_64") followed by any QEMU arguments
     #[options(free)]
     guest_architecture_then_qemu_arguments: Vec<String>,
@@ -25,6 +30,7 @@ struct Raw {
 
 pub struct Arguments {
     pub exit_port: u8,
+    pub exit_code: i32,
     pub guest_architecture: String,
     pub qemu_arguments: Vec<String>,
 }
@@ -55,6 +61,7 @@ impl Arguments {
         let Raw {
             help: _,
             exit_port,
+            exit_code,
             guest_architecture_then_qemu_arguments,
         } = options;
 
@@ -71,6 +78,10 @@ impl Arguments {
             exit_port: exit_port.ok_or_else(|| {
                 Self::usage(&argv0, usage).context("missing --exit-port argument")
             })?,
+            exit_code: exit_code
+                .ok_or_else(|| Self::usage(&argv0, usage).context("missing --exit-code argument"))?
+                .get()
+                .into(),
             guest_architecture,
             qemu_arguments: guest_architecture_then_qemu_arguments.collect(),
         })

@@ -122,7 +122,6 @@ impl QemuWrapper {
         const EXIT_CODE_SUCCESS: i32 = 0;
         const EXIT_CODE_FAILURE: i32 = 1;
         const EXIT_CODE_QEMU_POWERDOWN: i32 = EXIT_CODE_SUCCESS;
-        const EXIT_CODE_QEMU_ISA_DEBUG: i32 = 7;
 
         info!("run child: {}", process::id());
 
@@ -146,6 +145,7 @@ impl QemuWrapper {
 
         let Arguments {
             exit_port,
+            exit_code,
             guest_architecture,
             qemu_arguments,
         } = arguments;
@@ -249,10 +249,11 @@ impl QemuWrapper {
                                                 process_id,
                                                 EXIT_CODE_QEMU_POWERDOWN,
                                             ) => WaitStatus::Exited(process_id, EXIT_CODE_FAILURE),
-                                            WaitStatus::Exited(
-                                                process_id,
-                                                EXIT_CODE_QEMU_ISA_DEBUG,
-                                            ) => WaitStatus::Exited(process_id, EXIT_CODE_SUCCESS),
+                                            WaitStatus::Exited(process_id, code)
+                                                if exit_code == code =>
+                                            {
+                                                WaitStatus::Exited(process_id, EXIT_CODE_SUCCESS)
+                                            }
                                             status => status,
                                         })
                                         .context("grandchild wait status from raw");
