@@ -61,6 +61,7 @@ type Signals = SignalsInfo<WithRawSiginfo>;
 
 fn spawn_qemu_child(
     architecture: &str,
+    exit_port: u8,
     arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
     listener_path: &str,
     vm_close_on_ready: OwnedFd,
@@ -80,7 +81,7 @@ fn spawn_qemu_child(
             "-mon",
             "chardev=mon0",
             "-device",
-            &format!("isa-debug-exit,iobase=0xf4,iosize=0x01"),
+            &format!("isa-debug-exit,iobase={exit_port:#04x},iosize=0x01"),
             "-plugin",
             &format!(
                 "libqemu_plugin_ready.{PLUGIN_EXTENSION},fd={}",
@@ -144,6 +145,7 @@ impl QemuWrapper {
         .context("fcntl set fd")?;
 
         let Arguments {
+            exit_port,
             guest_architecture,
             qemu_arguments,
         } = arguments;
@@ -152,6 +154,7 @@ impl QemuWrapper {
 
         let mut grandchild = spawn_qemu_child(
             &guest_architecture,
+            exit_port,
             qemu_arguments,
             listener.path(),
             vm_close_on_ready_writer,

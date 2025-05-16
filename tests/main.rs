@@ -81,7 +81,9 @@ fn main() {
 
     let status = qemu_wrapper
         .run([
-            &env::args().next().expect("env args next"), // arbitrary, unused
+            &env::args().next().expect("env args next"), // arbitrary
+            "--exit-port",
+            &format!("{PORT_EXIT:#04x}"),
             "x86_64",
             "-drive",
             &format!(
@@ -104,8 +106,6 @@ fn main() {
                 "format=raw,file=fat:rw:{}",
                 esp_dir.to_str().expect("esp dir to str")
             ),
-            // "-device",
-            // &format!("isa-debug-exit,iobase={PORT_EXIT:#04x},iosize=0x01"),
             "-nic",
             "none",
             "-nographic",

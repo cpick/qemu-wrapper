@@ -1,10 +1,22 @@
 use anyhow::{Context, Error, Result, anyhow};
 use gumdrop::{Options, ParsingStyle};
 
+fn parse_hex(value: &str) -> Result<u8> {
+    const PREFIX: &str = "0x";
+    let value = value
+        .strip_prefix(PREFIX)
+        .ok_or_else(|| anyhow!("strip prefix {PREFIX}"))?;
+    u8::from_str_radix(value, 16).context("from str radix")
+}
+
 #[derive(Debug, gumdrop::Options)]
 struct Raw {
     /// print help message
     help: bool,
+
+    /// system I/O port to which guest will write exit status to request VM poweroff
+    #[options(parse(try_from_str = "parse_hex"))]
+    exit_port: Option<u8>,
 
     /// guest architecture (eg: "x86_64") followed by any QEMU arguments
     #[options(free)]
@@ -12,13 +24,15 @@ struct Raw {
 }
 
 pub struct Arguments {
+    pub exit_port: u8,
     pub guest_architecture: String,
     pub qemu_arguments: Vec<String>,
 }
 
 impl Arguments {
-    fn usage(argv0: Option<impl AsRef<str>>, usage: &str) -> Error {
+    fn usage(argv0: &Option<impl AsRef<str>>, usage: &str) -> Error {
         let argv0 = argv0
+            .as_ref()
             .map(|argv0| argv0.as_ref().to_owned())
             .unwrap_or_default();
         anyhow!("Usage: {argv0} [OPTIONS]\n\n{usage}")
@@ -35,11 +49,12 @@ impl Arguments {
 
         let usage = options.self_usage();
         if options.help_requested() {
-            return Err(Self::usage(argv0, usage));
+            return Err(Self::usage(&argv0, usage));
         }
 
         let Raw {
             help: _,
+            exit_port,
             guest_architecture_then_qemu_arguments,
         } = options;
 
@@ -49,10 +64,13 @@ impl Arguments {
             guest_architecture_then_qemu_arguments
                 .next()
                 .ok_or_else(|| {
-                    Self::usage(argv0, usage).context("missing <guest_architecture> argument")
+                    Self::usage(&argv0, usage).context("missing <guest_architecture> argument")
                 })?;
 
         Ok(Self {
+            exit_port: exit_port.ok_or_else(|| {
+                Self::usage(&argv0, usage).context("missing --exit-port argument")
+            })?,
             guest_architecture,
             qemu_arguments: guest_architecture_then_qemu_arguments.collect(),
         })
