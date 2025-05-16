@@ -16,6 +16,7 @@ mod stop_guard;
 mod terminal_guard;
 
 use anyhow::{Context, Error, Result, anyhow, bail};
+use gumdrop::{Options, ParsingStyle};
 use log::info;
 use monitor_listener::MonitorListener;
 use nix::{
@@ -37,7 +38,6 @@ use signal_hook::{
 };
 use std::{
     convert::Infallible,
-    ffi::{OsStr, OsString},
     io::Write as _,
     os::{
         fd::{AsFd, AsRawFd, OwnedFd},
@@ -51,6 +51,15 @@ use std::{
 use stop_guard::StopGuard;
 use terminal_guard::TerminalGuard;
 
+#[derive(Debug, Options)]
+struct Arguments {
+    /// print help message
+    help: bool,
+
+    /// guest architecture (eg: "x86_64") followed by any QEMU arguments
+    #[options(free)]
+    guest_architecture_then_qemu_arguments: Vec<String>,
+}
 pub struct QemuWrapper {
     sigmask: SigmaskGuard,
 }
@@ -58,8 +67,8 @@ pub struct QemuWrapper {
 type Signals = SignalsInfo<WithRawSiginfo>;
 
 fn spawn_qemu_child(
-    architecture: &OsStr,
-    arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
+    architecture: &str,
+    arguments: impl IntoIterator<Item = String>,
     listener_path: &str,
     vm_close_on_ready: OwnedFd,
 ) -> Result<Child> {
@@ -70,8 +79,7 @@ fn spawn_qemu_child(
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     const PLUGIN_EXTENSION: &str = "so";
 
-    let mut program = OsString::from("qemu-system-");
-    program.push(architecture);
+    let program = format!("qemu-system-{architecture}");
     let result = Command::new(&program)
         .args([
             "-chardev",
@@ -118,7 +126,7 @@ impl QemuWrapper {
     #[allow(clippy::too_many_lines)] // FIXME:
     fn run_child(
         &self,
-        arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
+        arguments: impl IntoIterator<Item = impl AsRef<str>>,
         mut signals: Signals,
     ) -> Result<WaitStatus> {
         const EXIT_CODE_SUCCESS: i32 = 0;
@@ -147,13 +155,42 @@ impl QemuWrapper {
         .context("fcntl set fd")?;
 
         // spawn grandchild
-        let mut arguments = arguments.into_iter().skip(1 /* argv[0] */);
-        let architecture = arguments
+        let mut arguments = arguments.into_iter();
+        let argv0 = arguments.next();
+        let arguments = Arguments::parse_args(
+            &arguments.collect::<Vec<_>>(),
+            ParsingStyle::StopAtFirstFree,
+        )
+        .context("parse arguments")?;
+
+        if arguments.help_requested() {
+            let argv0 = argv0
+                .map(|argv0| argv0.as_ref().to_owned())
+                .unwrap_or_default();
+            eprintln!("Usage: {argv0} [OPTIONS]\n\n{}", arguments.self_usage());
+            return WaitStatus::from_raw(
+                Pid::from_raw(
+                    process::id()
+                        .try_into()
+                        .expect("parent process id try into pid"),
+                ),
+                EXIT_CODE_SUCCESS,
+            )
+            .context("help wait status from raw");
+        }
+        let Arguments {
+            help: _,
+            guest_architecture_then_qemu_arguments,
+        } = arguments;
+
+        let mut guest_architecture_then_qemu_arguments =
+            guest_architecture_then_qemu_arguments.into_iter();
+        let architecture = guest_architecture_then_qemu_arguments
             .next()
             .ok_or_else(|| anyhow!("missing <guest_architecture> argument"))?;
         let mut grandchild = spawn_qemu_child(
             architecture.as_ref(),
-            arguments,
+            guest_architecture_then_qemu_arguments,
             listener.path(),
             vm_close_on_ready_writer,
         )
@@ -253,7 +290,7 @@ impl QemuWrapper {
                                             ) => WaitStatus::Exited(process_id, EXIT_CODE_SUCCESS),
                                             status => status,
                                         })
-                                        .context("wait status from raw");
+                                        .context("grandchild wait status from raw");
                                     }
                                 }
                             }
@@ -318,7 +355,7 @@ impl QemuWrapper {
         Ok(Self { sigmask })
     }
 
-    pub fn run(self, arguments: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Result<WaitStatus> {
+    pub fn run(self, arguments: impl IntoIterator<Item = impl AsRef<str>>) -> Result<WaitStatus> {
         info!("run: {}", process::id());
         let mut signals = Signals::new(Self::SIGNALS).context("new signals")?;
 

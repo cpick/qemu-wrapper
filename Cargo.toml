@@ -9,6 +9,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = { version = "1.0.98", default-features = false, features = ["std"] }
+gumdrop = { version = "0.8.1", default-features = false }
 log = { version = "0.4.27", default-features = false, features = [
   "max_level_info",
   "release_max_level_warn",
