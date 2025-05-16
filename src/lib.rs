@@ -94,6 +94,8 @@ fn spawn_qemu_child(
 }
 
 pub fn mimic_wait_status(status: WaitStatus) -> Result<Infallible> {
+    info!("mimic wait status: {} {status:?}", process::id());
+
     match status {
         WaitStatus::Exited(_process_id, code) => process::exit(code),
         WaitStatus::Signaled(_process_id, signal, _dumped_core) => {
@@ -123,6 +125,8 @@ impl QemuWrapper {
         const EXIT_CODE_FAILURE: i32 = 1;
         const EXIT_CODE_QEMU_POWERDOWN: i32 = EXIT_CODE_SUCCESS;
         const EXIT_CODE_QEMU_ISA_DEBUG: i32 = 7;
+
+        info!("run child: {}", process::id());
 
         // setup that must be done before spawning grandchild
         setpgid(
@@ -300,6 +304,8 @@ impl QemuWrapper {
     }
 
     pub fn new() -> Result<Self> {
+        info!("new: {}", process::id());
+
         // block signals before spawning child
         let sigmask = SigmaskGuard::new(
             Self::SIGNALS
@@ -313,6 +319,7 @@ impl QemuWrapper {
     }
 
     pub fn run(self, arguments: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Result<WaitStatus> {
+        info!("run: {}", process::id());
         let mut signals = Signals::new(Self::SIGNALS).context("new signals")?;
 
         // SAFETY: safe in a singly-threaded process
