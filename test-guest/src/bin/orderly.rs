@@ -29,17 +29,17 @@ const PORT_DATA: u8 = {
 };
 
 // must match QEMU's isa-debug-exit device's iobase
-const PORT_EXIT: u8 = include!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/port-exit"));
+const EXIT_PORT: u8 = include!(concat!(env!("CARGO_MANIFEST_DIR"), "/config/exit-port"));
 
 // must match qemu-wrapper's ready plugin's OPCODE
-const PORT_READY_FOR_EXIT_SIGNAL: u8 = include!(concat!(
+const READY_FOR_EXIT_SIGNAL_PORT: u8 = include!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/config/port-ready-for-exit-signal"
+    "/config/ready-for-exit-signal-port"
 ));
 
 const _: () = assert!(
-    PORT_EXIT != PORT_READY_FOR_EXIT_SIGNAL,
-    "PORT_EXIT and PORT_READY_FOR_EXIT_SIGNAL must be different"
+    EXIT_PORT != READY_FOR_EXIT_SIGNAL_PORT,
+    "EXIT_PORT and READY_FOR_EXIT_SIGNAL_PORT must be different"
 );
 
 #[derive(Clone)]
@@ -140,7 +140,7 @@ fn main() -> Status {
         asm!(
             "out {port}, al",
             in("al") PORT_DATA,
-            port = const PORT_READY_FOR_EXIT_SIGNAL,
+            port = const READY_FOR_EXIT_SIGNAL_PORT,
             options(nomem, nostack)
         );
     }
@@ -171,7 +171,7 @@ fn main() -> Status {
         asm!(
             "out {port}, al",
             in("al") PORT_DATA,
-            port = const PORT_EXIT,
+            port = const EXIT_PORT,
             options(nomem, nostack)
         );
     }

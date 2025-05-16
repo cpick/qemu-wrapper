@@ -71,9 +71,9 @@ fn main() {
     ovmf_dir.extend(["share", "qemu"]);
 
     // must match guest's config
-    const PORT_EXIT: u8 = include!(concat!(
+    const EXIT_PORT: u8 = include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/test-guest/config/port-exit"
+        "/test-guest/config/exit-port"
     ));
 
     // must match guest's config
@@ -89,7 +89,7 @@ fn main() {
         .run([
             &env::args().next().expect("env args next"), // arbitrary
             "--exit-port",
-            &format!("{PORT_EXIT:#04x}"),
+            &format!("{EXIT_PORT:#04x}"),
             "--exit-code",
             &EXIT_CODE.to_string(),
             "x86_64",
