@@ -4,7 +4,11 @@ use std::{
     process,
 };
 
-use nix::sys::wait::WaitStatus;
+use nix::sys::{
+    signal::{self, Signal},
+    wait::WaitStatus,
+};
+use qemu_wrapper::QemuWrapper;
 use serde::Deserialize;
 use test_binary::TestBinary;
 
@@ -72,38 +76,42 @@ fn main() {
         "/test-guest/config/port-exit"
     ));
 
-    let status = qemu_wrapper::run([
-        &env::args().next().expect("env args next"), // arbitrary, unused
-        "x86_64",
-        "-drive",
-        &format!(
-            "if=pflash,format=raw,readonly=on,file={}",
-            ovmf_dir
-                .join("edk2-x86_64-code.fd")
-                .to_str()
-                .expect("ovmf code to str")
-        ),
-        "-drive",
-        &format!(
-            "if=pflash,format=raw,readonly=on,file={}",
-            ovmf_dir
-                .join("edk2-i386-vars.fd")
-                .to_str()
-                .expect("ovmf vars to str")
-        ),
-        "-drive",
-        &format!(
-            "format=raw,file=fat:rw:{}",
-            esp_dir.to_str().expect("esp dir to str")
-        ),
-        // "-device",
-        // &format!("isa-debug-exit,iobase={PORT_EXIT:#04x},iosize=0x01"),
-        "-nic",
-        "none",
-        "-nographic",
-        "-no-reboot",
-    ])
-    .expect("run orderly status");
+    let qemu_wrapper = QemuWrapper::new().expect("qemu wrapper new");
+    signal::raise(Signal::SIGINT).expect("signal raise");
+
+    let status = qemu_wrapper
+        .run([
+            &env::args().next().expect("env args next"), // arbitrary, unused
+            "x86_64",
+            "-drive",
+            &format!(
+                "if=pflash,format=raw,readonly=on,file={}",
+                ovmf_dir
+                    .join("edk2-x86_64-code.fd")
+                    .to_str()
+                    .expect("ovmf code to str")
+            ),
+            "-drive",
+            &format!(
+                "if=pflash,format=raw,readonly=on,file={}",
+                ovmf_dir
+                    .join("edk2-i386-vars.fd")
+                    .to_str()
+                    .expect("ovmf vars to str")
+            ),
+            "-drive",
+            &format!(
+                "format=raw,file=fat:rw:{}",
+                esp_dir.to_str().expect("esp dir to str")
+            ),
+            // "-device",
+            // &format!("isa-debug-exit,iobase={PORT_EXIT:#04x},iosize=0x01"),
+            "-nic",
+            "none",
+            "-nographic",
+            "-no-reboot",
+        ])
+        .expect("run orderly status");
 
     // must match guest's config
     const EXIT_CODE: u8 = include!(concat!(
