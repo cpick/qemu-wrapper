@@ -10,13 +10,14 @@
 )]
 #![warn(clippy::pedantic)]
 
+mod arguments;
 mod monitor_listener;
 mod sigmask_guard;
 mod stop_guard;
 mod terminal_guard;
 
-use anyhow::{Context, Error, Result, anyhow, bail};
-use gumdrop::{Options, ParsingStyle};
+use anyhow::{Context, Error, Result, bail};
+use arguments::Arguments;
 use log::info;
 use monitor_listener::MonitorListener;
 use nix::{
@@ -38,6 +39,7 @@ use signal_hook::{
 };
 use std::{
     convert::Infallible,
+    ffi::OsStr,
     io::Write as _,
     os::{
         fd::{AsFd, AsRawFd, OwnedFd},
@@ -51,15 +53,6 @@ use std::{
 use stop_guard::StopGuard;
 use terminal_guard::TerminalGuard;
 
-#[derive(Debug, Options)]
-struct Arguments {
-    /// print help message
-    help: bool,
-
-    /// guest architecture (eg: "x86_64") followed by any QEMU arguments
-    #[options(free)]
-    guest_architecture_then_qemu_arguments: Vec<String>,
-}
 pub struct QemuWrapper {
     sigmask: SigmaskGuard,
 }
@@ -68,7 +61,7 @@ type Signals = SignalsInfo<WithRawSiginfo>;
 
 fn spawn_qemu_child(
     architecture: &str,
-    arguments: impl IntoIterator<Item = String>,
+    arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
     listener_path: &str,
     vm_close_on_ready: OwnedFd,
 ) -> Result<Child> {
@@ -87,7 +80,7 @@ fn spawn_qemu_child(
             "-mon",
             "chardev=mon0",
             "-device",
-            "isa-debug-exit,iobase=0xf4,iosize=0x01",
+            &format!("isa-debug-exit,iobase=0xf4,iosize=0x01"),
             "-plugin",
             &format!(
                 "libqemu_plugin_ready.{PLUGIN_EXTENSION},fd={}",
@@ -124,11 +117,7 @@ impl QemuWrapper {
     ];
 
     #[allow(clippy::too_many_lines)] // FIXME:
-    fn run_child(
-        &self,
-        arguments: impl IntoIterator<Item = impl AsRef<str>>,
-        mut signals: Signals,
-    ) -> Result<WaitStatus> {
+    fn run_child(&self, arguments: Arguments, mut signals: Signals) -> Result<WaitStatus> {
         const EXIT_CODE_SUCCESS: i32 = 0;
         const EXIT_CODE_FAILURE: i32 = 1;
         const EXIT_CODE_QEMU_POWERDOWN: i32 = EXIT_CODE_SUCCESS;
@@ -154,43 +143,16 @@ impl QemuWrapper {
         .map(drop)
         .context("fcntl set fd")?;
 
-        // spawn grandchild
-        let mut arguments = arguments.into_iter();
-        let argv0 = arguments.next();
-        let arguments = Arguments::parse_args(
-            &arguments.collect::<Vec<_>>(),
-            ParsingStyle::StopAtFirstFree,
-        )
-        .context("parse arguments")?;
-
-        if arguments.help_requested() {
-            let argv0 = argv0
-                .map(|argv0| argv0.as_ref().to_owned())
-                .unwrap_or_default();
-            eprintln!("Usage: {argv0} [OPTIONS]\n\n{}", arguments.self_usage());
-            return WaitStatus::from_raw(
-                Pid::from_raw(
-                    process::id()
-                        .try_into()
-                        .expect("parent process id try into pid"),
-                ),
-                EXIT_CODE_SUCCESS,
-            )
-            .context("help wait status from raw");
-        }
         let Arguments {
-            help: _,
-            guest_architecture_then_qemu_arguments,
+            guest_architecture,
+            qemu_arguments,
         } = arguments;
 
-        let mut guest_architecture_then_qemu_arguments =
-            guest_architecture_then_qemu_arguments.into_iter();
-        let architecture = guest_architecture_then_qemu_arguments
-            .next()
-            .ok_or_else(|| anyhow!("missing <guest_architecture> argument"))?;
+        // spawn grandchild
+
         let mut grandchild = spawn_qemu_child(
-            architecture.as_ref(),
-            guest_architecture_then_qemu_arguments,
+            &guest_architecture,
+            qemu_arguments,
             listener.path(),
             vm_close_on_ready_writer,
         )
@@ -357,6 +319,8 @@ impl QemuWrapper {
 
     pub fn run(self, arguments: impl IntoIterator<Item = impl AsRef<str>>) -> Result<WaitStatus> {
         info!("run: {}", process::id());
+        let arguments = Arguments::parse(arguments).context("parse arguments")?;
+
         let mut signals = Signals::new(Self::SIGNALS).context("new signals")?;
 
         // SAFETY: safe in a singly-threaded process
