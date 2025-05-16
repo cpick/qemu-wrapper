@@ -1,6 +1,6 @@
 use std::num::NonZeroU8;
 
-use anyhow::{Context, Error, Result, anyhow};
+use anyhow::{Context, Error, Result, anyhow, ensure};
 use gumdrop::{Options, ParsingStyle};
 
 fn parse_hex(value: &str) -> Result<u8> {
@@ -16,6 +16,10 @@ struct Raw {
     /// print help message
     help: bool,
 
+    /// system I/O port to which guest will write when it's ready for exit signals
+    #[options(parse(try_from_str = "parse_hex"))]
+    ready_for_exit_signal_port: Option<u8>,
+
     /// system I/O port to which guest will write exit status to request VM poweroff
     #[options(parse(try_from_str = "parse_hex"))]
     exit_port: Option<u8>,
@@ -29,6 +33,7 @@ struct Raw {
 }
 
 pub struct Arguments {
+    pub ready_for_exit_signal_port: u8,
     pub exit_port: u8,
     pub exit_code: i32,
     pub guest_architecture: String,
@@ -60,6 +65,7 @@ impl Arguments {
 
         let Raw {
             help: _,
+            ready_for_exit_signal_port,
             exit_port,
             exit_code,
             guest_architecture_then_qemu_arguments,
@@ -74,10 +80,21 @@ impl Arguments {
                     Self::usage(&argv0, usage).context("missing <guest_architecture> argument")
                 })?;
 
+        let ready_for_exit_signal_port = ready_for_exit_signal_port.ok_or_else(|| {
+            Self::usage(&argv0, usage).context("missing --ready-for-exit-signal-port argument")
+        })?;
+
+        let exit_port = exit_port
+            .ok_or_else(|| Self::usage(&argv0, usage).context("missing --exit-port argument"))?;
+
+        ensure!(
+            ready_for_exit_signal_port != exit_port,
+            "--ready-for-exit-signal-port and --exit-port arguments must be different"
+        );
+
         Ok(Self {
-            exit_port: exit_port.ok_or_else(|| {
-                Self::usage(&argv0, usage).context("missing --exit-port argument")
-            })?,
+            ready_for_exit_signal_port,
+            exit_port,
             exit_code: exit_code
                 .ok_or_else(|| Self::usage(&argv0, usage).context("missing --exit-code argument"))?
                 .get()

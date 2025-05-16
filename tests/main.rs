@@ -71,6 +71,12 @@ fn main() {
     ovmf_dir.extend(["share", "qemu"]);
 
     // must match guest's config
+    const READY_FOR_EXIT_SIGNAL_PORT: u8 = include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/test-guest/config/ready-for-exit-signal-port"
+    ));
+
+    // must match guest's config
     const EXIT_PORT: u8 = include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/test-guest/config/exit-port"
@@ -88,6 +94,8 @@ fn main() {
     let status = qemu_wrapper
         .run([
             &env::args().next().expect("env args next"), // arbitrary
+            "--ready-for-exit-signal-port",
+            &format!("{READY_FOR_EXIT_SIGNAL_PORT:#04x}"),
             "--exit-port",
             &format!("{EXIT_PORT:#04x}"),
             "--exit-code",

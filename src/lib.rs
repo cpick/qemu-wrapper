@@ -61,6 +61,7 @@ type Signals = SignalsInfo<WithRawSiginfo>;
 
 fn spawn_qemu_child(
     architecture: &str,
+    ready_for_exit_signal_port: u8,
     exit_port: u8,
     arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
     listener_path: &str,
@@ -84,7 +85,7 @@ fn spawn_qemu_child(
             &format!("isa-debug-exit,iobase={exit_port:#04x},iosize=0x01"),
             "-plugin",
             &format!(
-                "libqemu_plugin_ready.{PLUGIN_EXTENSION},fd={}",
+                "libqemu_plugin_ready.{PLUGIN_EXTENSION},port={ready_for_exit_signal_port},fd={}",
                 vm_close_on_ready.as_raw_fd()
             ),
         ])
@@ -144,6 +145,7 @@ impl QemuWrapper {
         .context("fcntl set fd")?;
 
         let Arguments {
+            ready_for_exit_signal_port,
             exit_port,
             exit_code,
             guest_architecture,
@@ -154,6 +156,7 @@ impl QemuWrapper {
 
         let mut grandchild = spawn_qemu_child(
             &guest_architecture,
+            ready_for_exit_signal_port,
             exit_port,
             qemu_arguments,
             listener.path(),
