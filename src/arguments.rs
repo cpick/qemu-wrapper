@@ -32,12 +32,16 @@ struct Raw {
     guest_architecture_then_qemu_arguments: Vec<String>,
 }
 
-pub struct Arguments {
+pub struct ChildArguments {
     pub ready_for_exit_signal_port: u8,
     pub exit_port: u8,
-    pub exit_code: i32,
     pub guest_architecture: String,
     pub qemu_arguments: Vec<String>,
+}
+
+pub struct Arguments {
+    pub child_arguments: ChildArguments,
+    pub exit_code: i32,
 }
 
 impl Arguments {
@@ -93,14 +97,16 @@ impl Arguments {
         );
 
         Ok(Self {
-            ready_for_exit_signal_port,
-            exit_port,
+            child_arguments: ChildArguments {
+                ready_for_exit_signal_port,
+                exit_port,
+                guest_architecture,
+                qemu_arguments: guest_architecture_then_qemu_arguments.collect(),
+            },
             exit_code: exit_code
                 .ok_or_else(|| Self::usage(&argv0, usage).context("missing --exit-code argument"))?
                 .get()
                 .into(),
-            guest_architecture,
-            qemu_arguments: guest_architecture_then_qemu_arguments.collect(),
         })
     }
 }

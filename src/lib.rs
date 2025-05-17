@@ -17,7 +17,7 @@ mod stop_guard;
 mod terminal_guard;
 
 use anyhow::{Context, Error, Result, bail};
-use arguments::Arguments;
+use arguments::{Arguments, ChildArguments};
 use log::info;
 use monitor_listener::MonitorListener;
 use nix::{
@@ -39,7 +39,6 @@ use signal_hook::{
 };
 use std::{
     convert::Infallible,
-    ffi::OsStr,
     io::Write as _,
     os::{
         fd::{AsFd, AsRawFd, OwnedFd},
@@ -60,10 +59,7 @@ pub struct QemuWrapper {
 type Signals = SignalsInfo<WithRawSiginfo>;
 
 fn spawn_qemu_child(
-    architecture: &str,
-    ready_for_exit_signal_port: u8,
-    exit_port: u8,
-    arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
+    arguments: ChildArguments,
     listener_path: &str,
     vm_close_on_ready: OwnedFd,
 ) -> Result<Child> {
@@ -74,7 +70,14 @@ fn spawn_qemu_child(
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     const PLUGIN_EXTENSION: &str = "so";
 
-    let program = format!("qemu-system-{architecture}");
+    let ChildArguments {
+        ready_for_exit_signal_port,
+        exit_port,
+        guest_architecture,
+        qemu_arguments,
+    } = arguments;
+
+    let program = format!("qemu-system-{guest_architecture}");
     let result = Command::new(&program)
         .args([
             "-chardev",
@@ -89,7 +92,7 @@ fn spawn_qemu_child(
                 vm_close_on_ready.as_raw_fd()
             ),
         ])
-        .args(arguments)
+        .args(qemu_arguments)
         .spawn()
         .with_context(|| format!("spawn command: '{program:?}' ..."));
     drop(vm_close_on_ready); // placate clippy
@@ -145,24 +148,15 @@ impl QemuWrapper {
         .context("fcntl set fd")?;
 
         let Arguments {
-            ready_for_exit_signal_port,
-            exit_port,
+            child_arguments,
             exit_code,
-            guest_architecture,
-            qemu_arguments,
         } = arguments;
 
         // spawn grandchild
 
-        let mut grandchild = spawn_qemu_child(
-            &guest_architecture,
-            ready_for_exit_signal_port,
-            exit_port,
-            qemu_arguments,
-            listener.path(),
-            vm_close_on_ready_writer,
-        )
-        .context("spawn qemu grandchild")?;
+        let mut grandchild =
+            spawn_qemu_child(child_arguments, listener.path(), vm_close_on_ready_writer)
+                .context("spawn qemu grandchild")?;
 
         // handle events
         let mut listener = Some(listener);
