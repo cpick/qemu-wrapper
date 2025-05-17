@@ -2,12 +2,14 @@ use std::{
     env,
     ffi::OsString,
     fs,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process,
 };
 
 use nix::sys::{
     signal::{self, Signal},
+    stat::Mode,
     wait::WaitStatus,
 };
 use qemu_wrapper::QemuWrapper;
@@ -71,7 +73,12 @@ fn main() {
         boot.extend(["efi", "boot"]);
         fs::create_dir_all(&boot).expect("create dir all boot");
         boot.push("bootx64.efi");
-        fs::hard_link(orderly, boot).expect("hard link orderly boot");
+        fs::copy(orderly, &boot).expect("copy orderly boot");
+
+        // qemu writes to the executable for some reason
+        let mut permissions = fs::metadata(&boot).expect("boot metadata").permissions();
+        permissions.set_mode(permissions.mode() | u32::from(Mode::S_IWUSR.bits()));
+        fs::set_permissions(&boot, permissions).expect("set boot permissions");
     }
 
     let mut ovmf_dir = which::which("qemu-system-x86_64").expect("which qemu");
