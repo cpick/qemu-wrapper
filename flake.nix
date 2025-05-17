@@ -68,7 +68,7 @@
           // {
             inherit (craneLib.crateNameFromCargoToml { src = qemuPluginReadySrcDir; }) pname version;
 
-            cargoExtraArgs = "--locked -p qemu-plugin-ready";
+            cargoExtraArgs = "--locked --package qemu-plugin-ready";
 
             patches = [
               (pkgs.writeText "empty-src-main-rs.patch" ''
@@ -95,7 +95,7 @@
         qemu-wrapper = craneLib.buildPackage (
           commonArgsAndCargoArtifacts
           // {
-            cargoExtraArgs = "--locked";
+            cargoExtraArgs = "--locked --package qemu-wrapper";
             nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
 
             postInstall = ''
