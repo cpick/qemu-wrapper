@@ -11,8 +11,8 @@ use core::{
     arch::asm,
     ptr::{self, NonNull},
 };
-use log::{info, trace};
-use uefi::{Status, boot, entry, helpers, system, table::cfg};
+use log::info;
+use uefi::{Status, entry, helpers, system, table::cfg};
 
 const PORT_DATA: u8 = {
     // must match qemu-wrapper's EXIT_CODE
@@ -82,25 +82,17 @@ fn main() -> Status {
             .map(|entry| entry.address)
     })
     .expect("rsdp address");
-    info!("rsdp address: {rsdp_address:?}");
 
     let acpi = unsafe { AcpiTables::from_rsdp(DirectHandler::new(), rsdp_address as usize) }
         .expect("acpi from rsdp");
-    info!("acpi revision: {}", acpi.revision());
 
     let fadt = acpi.find_table::<Fadt>().expect("acpi find table fadt");
     {
         let flags = unsafe { ptr::read_unaligned(&raw const fadt.flags) };
-        info!(
-            "fadt acpi enable: {:#x} power button is control method: {}",
-            fadt.acpi_enable,
-            flags.power_button_is_control_method()
-        );
         assert!(!flags.power_button_is_control_method());
     }
 
     let pm1a_event_block = fadt.pm1a_event_block().expect("fadt pm1a event block");
-    info!("fadt pm1a event block: {pm1a_event_block:#x?}");
     assert_eq!(AddressSpace::SystemIo, pm1a_event_block.address_space);
     type Pm1Register = u16;
     assert_eq!(
@@ -150,7 +142,6 @@ fn main() -> Status {
         // https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/04_ACPI_Hardware_Specification/ACPI_Hardware_Specification.html#pm1-status-registers-fixed-hardware-feature-status-bits
         const PM1_STATUS_POWER_BUTTON: Pm1Register = 0x0100;
 
-        boot::stall(1 /* sec */ * 1000 /* ms */ * 1000 /* us */);
         let pm1a_status: Pm1Register;
         unsafe {
             asm!(
@@ -160,7 +151,6 @@ fn main() -> Status {
                 options(nomem, nostack)
             );
         }
-        trace!("pm1a event: {pm1a_status:#x}");
         if (PM1_STATUS_POWER_BUTTON & pm1a_status) != 0 {
             break;
         }
