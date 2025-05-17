@@ -1,5 +1,7 @@
 use std::{
-    env, fs,
+    env,
+    ffi::OsString,
+    fs,
     path::{Path, PathBuf},
     process,
 };
@@ -30,9 +32,11 @@ fn remove_dir_all_if_exists<P: AsRef<Path>>(path: P) {
     }
 }
 
-#[test]
-fn main() {
-    let name = "orderly";
+fn test_guest_binary(name: &str) -> OsString {
+    if let Some(path) = env::var_os("TEST_GUEST_PATH") {
+        return PathBuf::from_iter([path, (&format!("{name}.efi")).into()]).into_os_string();
+    }
+
     let test_guest_dir = Path::new("test-guest");
 
     let config = {
@@ -43,10 +47,15 @@ fn main() {
         toml::from_str::<Config>(&config).expect("toml from str config")
     };
 
-    let orderly = TestBinary::relative_to_parent(name, &test_guest_dir.join("Cargo.toml"))
+    TestBinary::relative_to_parent(name, &test_guest_dir.join("Cargo.toml"))
         .with_target(&config.build.target)
         .build()
-        .expect("build test binary orderly");
+        .expect("build test binary orderly")
+}
+
+#[test]
+fn main() {
+    let orderly = test_guest_binary("orderly");
 
     let esp_dir = scopeguard::guard(
         PathBuf::from_iter([

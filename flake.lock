@@ -76,6 +76,7 @@
         "fenix": "fenix",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
+        "test-guest": "test-guest",
         "treefmt-nix": "treefmt-nix"
       }
     },
@@ -110,6 +111,34 @@
         "repo": "default",
         "type": "github"
       }
+    },
+    "test-guest": {
+      "inputs": {
+        "crane": [
+          "crane"
+        ],
+        "fenix": [
+          "fenix"
+        ],
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "treefmt-nix": [
+          "treefmt-nix"
+        ]
+      },
+      "locked": {
+        "path": "test-guest",
+        "type": "path"
+      },
+      "original": {
+        "path": "test-guest",
+        "type": "path"
+      },
+      "parent": []
     },
     "treefmt-nix": {
       "inputs": {

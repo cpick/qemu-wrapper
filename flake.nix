@@ -10,6 +10,17 @@
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
 
+    test-guest = {
+      url = "path:test-guest";
+      inputs = {
+        crane.follows = "crane";
+        fenix.follows = "fenix";
+        flake-utils.follows = "flake-utils";
+        nixpkgs.follows = "nixpkgs";
+        treefmt-nix.follows = "treefmt-nix";
+      };
+    };
+
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -23,6 +34,7 @@
       fenix,
       flake-utils,
       nixpkgs,
+      test-guest,
       treefmt-nix,
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -123,6 +135,7 @@
                 ]
               );
             };
+            TEST_GUEST_PATH = lib.makeBinPath [ test-guest.packages."${system}".test-guest ];
           }
         );
 
