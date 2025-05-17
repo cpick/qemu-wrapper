@@ -16,7 +16,7 @@ mod sigmask_guard;
 mod stop_guard;
 mod terminal_guard;
 
-use anyhow::{Context, Error, Result, bail};
+use anyhow::{Context, Error, Result, anyhow, bail};
 use arguments::{Arguments, ChildArguments};
 use log::info;
 use monitor_listener::MonitorListener;
@@ -47,6 +47,7 @@ use std::{
             process::{ExitStatusExt as _, parent_id},
         },
     },
+    path::Path,
     process::{self, Child, Command},
 };
 use stop_guard::StopGuard;
@@ -60,7 +61,7 @@ type Signals = SignalsInfo<WithRawSiginfo>;
 
 fn spawn_qemu_child(
     arguments: ChildArguments,
-    listener_path: &str,
+    listener: &Path,
     vm_close_on_ready: OwnedFd,
 ) -> Result<Child> {
     #[cfg(target_os = "macos")]
@@ -81,7 +82,12 @@ fn spawn_qemu_child(
     let result = Command::new(&program)
         .args([
             "-chardev",
-            &format!("socket,id=mon0,path={listener_path},server=off"),
+            &format!(
+                "socket,id=mon0,path={},server=off",
+                listener
+                    .to_str()
+                    .ok_or_else(|| anyhow!("invalid listener: '{listener:?}'"))?
+            ),
             "-mon",
             "chardev=mon0",
             "-device",
