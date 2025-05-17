@@ -108,7 +108,10 @@
           commonArgsAndCargoArtifacts
           // {
             cargoExtraArgs = "--locked --package qemu-wrapper";
-            nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
+            nativeBuildInputs = [
+              pkgs.makeBinaryWrapper
+              pkgs.qemu
+            ];
 
             postInstall = ''
               wrapProgram $out/bin/qemu-wrapper \
