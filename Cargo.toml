@@ -1,4 +1,5 @@
 [workspace]
+default-members = [".", "qemu-plugin-ready"]
 members = ["qemu-plugin-ready"]
 resolver = "3"
 
