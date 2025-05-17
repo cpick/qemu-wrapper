@@ -138,6 +138,8 @@
                 ]
               );
             };
+
+            QEMU_PLUGIN_PATH = lib.makeLibraryPath [ qemu-plugin-ready ];
             TEST_GUEST_PATH = lib.makeBinPath [ test-guest.packages."${system}".test-guest ];
           }
         );

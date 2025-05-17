@@ -39,6 +39,7 @@ use signal_hook::{
 };
 use std::{
     convert::Infallible,
+    env,
     io::Write as _,
     os::{
         fd::{AsFd, AsRawFd, OwnedFd},
@@ -47,7 +48,7 @@ use std::{
             process::{ExitStatusExt as _, parent_id},
         },
     },
-    path::Path,
+    path::{Path, PathBuf},
     process::{self, Child, Command},
 };
 use stop_guard::StopGuard;
@@ -78,6 +79,13 @@ fn spawn_qemu_child(
         qemu_arguments,
     } = arguments;
 
+    let mut plugin = PathBuf::from("libqemu_plugin_ready");
+    plugin.set_extension(PLUGIN_EXTENSION);
+
+    if let Some(plugin_path) = env::var_os("QEMU_PLUGIN_PATH") {
+        plugin = PathBuf::from_iter([plugin_path, plugin.into_os_string()]);
+    }
+
     let program = format!("qemu-system-{guest_architecture}");
     let result = Command::new(&program)
         .args([
@@ -94,7 +102,10 @@ fn spawn_qemu_child(
             &format!("isa-debug-exit,iobase={exit_port:#04x},iosize=0x01"),
             "-plugin",
             &format!(
-                "libqemu_plugin_ready.{PLUGIN_EXTENSION},port={ready_for_exit_signal_port},fd={}",
+                "{},port={ready_for_exit_signal_port},fd={}",
+                plugin
+                    .to_str()
+                    .ok_or_else(|| anyhow!("invalid plugin: '{plugin:?}'"))?,
                 vm_close_on_ready.as_raw_fd()
             ),
         ])
