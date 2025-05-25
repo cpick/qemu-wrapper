@@ -43,7 +43,7 @@ fn test_guest_binary(name: &str) -> OsString {
 
     let config = {
         let mut config = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        config.extend([&*test_guest_dir, ".cargo".as_ref(), "config.toml".as_ref()]);
+        config.extend([test_guest_dir, ".cargo".as_ref(), "config.toml".as_ref()]);
 
         let config = fs::read_to_string(config).expect("read to string config");
         toml::from_str::<Config>(&config).expect("toml from str config")

@@ -116,6 +116,10 @@ fn spawn_qemu_child(
     result
 }
 
+/// # Errors
+///
+/// Will return `Err` if `status` is neither `Exited` nor `Signaled` or if
+/// `Signaled` contains non-fatal `signal`.
 pub fn mimic_wait_status(status: WaitStatus) -> Result<Infallible> {
     info!("mimic wait status: {} {status:?}", process::id());
 
@@ -123,8 +127,8 @@ pub fn mimic_wait_status(status: WaitStatus) -> Result<Infallible> {
         WaitStatus::Exited(_process_id, code) => process::exit(code),
         WaitStatus::Signaled(_process_id, signal, _dumped_core) => {
             #[allow(clippy::as_conversions)]
-            emulate_default_handler(signal as i32).context("emulate default fatal handler")?;
-            panic!("non-fatal signal: {signal}");
+            emulate_default_handler(signal as i32).context("emulate default handler")?;
+            bail!("non-fatal signal: {signal}");
         }
         status => bail!("wait status unexpected: {status:?}"),
     }
@@ -320,6 +324,13 @@ impl QemuWrapper {
         }
     }
 
+    /// # Errors
+    ///
+    /// Will return `Err` if signals cannot be blocked.
+    ///
+    /// # Panics
+    ///
+    /// Will panic on internal, programming error.
     pub fn new() -> Result<Self> {
         info!("new: {}", process::id());
 
@@ -335,6 +346,9 @@ impl QemuWrapper {
         Ok(Self { sigmask })
     }
 
+    /// # Errors
+    ///
+    /// Will return `Err` if QEMU cannot be run to completion.
     pub fn run(self, arguments: impl IntoIterator<Item = impl AsRef<str>>) -> Result<WaitStatus> {
         info!("run: {}", process::id());
         let arguments = Arguments::parse(arguments).context("parse arguments")?;

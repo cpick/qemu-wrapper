@@ -27,7 +27,7 @@ struct Raw {
     /// status code expected from QEMU on successful exit
     exit_code: Option<NonZeroU8>,
 
-    /// guest architecture (eg: "x86_64") followed by any QEMU arguments
+    /// guest architecture (eg: "`x86_64`") followed by any QEMU arguments
     #[options(free)]
     guest_architecture_then_qemu_arguments: Vec<String>,
 }
@@ -45,9 +45,8 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    fn usage(argv0: &Option<impl AsRef<str>>, usage: &str) -> Error {
+    fn usage(argv0: Option<impl AsRef<str>>, usage: &str) -> Error {
         let argv0 = argv0
-            .as_ref()
             .map(|argv0| argv0.as_ref().to_owned())
             .unwrap_or_default();
         anyhow!("Usage: {argv0} [OPTIONS]\n\n{usage}")
@@ -64,7 +63,7 @@ impl Arguments {
 
         let usage = options.self_usage();
         if options.help_requested() {
-            return Err(Self::usage(&argv0, usage));
+            return Err(Self::usage(argv0.as_ref(), usage));
         }
 
         let Raw {
@@ -81,15 +80,18 @@ impl Arguments {
             guest_architecture_then_qemu_arguments
                 .next()
                 .ok_or_else(|| {
-                    Self::usage(&argv0, usage).context("missing <guest_architecture> argument")
+                    Self::usage(argv0.as_ref(), usage)
+                        .context("missing <guest_architecture> argument")
                 })?;
 
         let ready_for_exit_signal_port = ready_for_exit_signal_port.ok_or_else(|| {
-            Self::usage(&argv0, usage).context("missing --ready-for-exit-signal-port argument")
+            Self::usage(argv0.as_ref(), usage)
+                .context("missing --ready-for-exit-signal-port argument")
         })?;
 
-        let exit_port = exit_port
-            .ok_or_else(|| Self::usage(&argv0, usage).context("missing --exit-port argument"))?;
+        let exit_port = exit_port.ok_or_else(|| {
+            Self::usage(argv0.as_ref(), usage).context("missing --exit-port argument")
+        })?;
 
         ensure!(
             ready_for_exit_signal_port != exit_port,
@@ -104,7 +106,9 @@ impl Arguments {
                 qemu_arguments: guest_architecture_then_qemu_arguments.collect(),
             },
             exit_code: exit_code
-                .ok_or_else(|| Self::usage(&argv0, usage).context("missing --exit-code argument"))?
+                .ok_or_else(|| {
+                    Self::usage(argv0.as_ref(), usage).context("missing --exit-code argument")
+                })?
                 .get()
                 .into(),
         })
