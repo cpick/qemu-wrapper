@@ -164,7 +164,25 @@
           inherit qemu-plugin-ready qemu-wrapper; # check build
 
           formatting = treefmt.check self;
-          qemu-wrapper-clippy = craneLib.cargoClippy commonArgsAndCargoArtifacts;
+
+          qemu-wrapper-clippy = craneLib.cargoClippy (
+            commonArgsAndCargoArtifacts
+            // {
+              src = lib.fileset.toSource {
+                root = ./.;
+                fileset = lib.fileset.unions (
+                  rootCargoSources
+                  ++ [
+                    ./test-guest/config
+                    (craneLib.fileset.commonCargoSources qemuPluginReadySrcDir)
+                    (craneLib.fileset.commonCargoSources ./src)
+                    (craneLib.fileset.commonCargoSources ./tests)
+                  ]
+                );
+              };
+            }
+          );
+
           qemu-wrapper-doc = craneLib.cargoDoc commonArgsAndCargoArtifacts;
           test-guest = testGuest; # check build
         };
