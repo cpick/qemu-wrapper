@@ -39,7 +39,6 @@
           in
           fenixPkgs.combine [
             fenixPkgs.stable.cargo
-            fenixPkgs.stable.clippy
             fenixPkgs.stable.rustc
             fenixPkgs.targets."${cargoConfig.build.target}".stable.rust-std
           ];
@@ -103,8 +102,6 @@
           inherit test-guest; # check build
 
           formatting = treefmt.check self;
-          qemu-wrapper-clippy = craneLib.cargoClippy commonArgsAndCargoArtifacts;
-          qemu-wrapper-doc = craneLib.cargoDoc commonArgsAndCargoArtifacts;
         };
 
         packages = {
