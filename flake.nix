@@ -42,7 +42,6 @@
       let
         pkgs = nixpkgs.legacyPackages."${system}";
         inherit (pkgs) lib;
-        testGuest = test-guest.packages."${system}".test-guest;
 
         toolchain =
           let
@@ -141,7 +140,7 @@
             };
 
             QEMU_PLUGIN_PATH = lib.makeLibraryPath [ qemu-plugin-ready ];
-            TEST_GUEST_PATH = lib.makeBinPath [ testGuest ];
+            TEST_GUEST_PATH = lib.makeBinPath [ test-guest.packages."${system}".test-guest ];
           }
         );
 
@@ -161,7 +160,7 @@
       in
       {
         checks = {
-          inherit qemu-plugin-ready qemu-wrapper; # check build
+          inherit qemu-wrapper; # check build
 
           formatting = treefmt.check self;
 
@@ -184,7 +183,6 @@
           );
 
           qemu-wrapper-doc = craneLib.cargoDoc commonArgsAndCargoArtifacts;
-          test-guest = testGuest; # check build
         };
 
         packages = {
