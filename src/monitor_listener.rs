@@ -23,7 +23,9 @@ impl MonitorListener {
             Ok(()) => {}                                            // carry on
             Err(error) if error.kind() == ErrorKind::NotFound => {} // carry on
             Err(error) => {
-                return Err(Error::new(error).context(format!("remove socket file '{path:?}'")));
+                return Err(
+                    Error::new(error).context(format!("remove socket file '{}'", path.display()))
+                );
             }
         }
 
@@ -46,7 +48,8 @@ impl Drop for MonitorListener {
     fn drop(&mut self) {
         let path = self.path();
         if let Err(error) = std::fs::remove_file(path) {
-            let error = Error::new(error).context(format!("remove socket file '{path:?}'"));
+            let error =
+                Error::new(error).context(format!("remove socket file '{}'", path.display()));
             eprintln!("Error: {} {error:?}", type_name::<Self>());
         }
     }
