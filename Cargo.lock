@@ -234,9 +234,9 @@ checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
 
 [[package]]
 name = "libloading"
-version = "0.8.6"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
+checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
  "windows-targets",
@@ -320,7 +320,7 @@ dependencies = [
 [[package]]
 name = "qemu-plugin"
 version = "9.2.0-v0"
-source = "git+https://github.com/cpick/qemu-rs.git?branch=add-insn-read-data#96da31249eb56811192900584e4b18ea67ae2e21"
+source = "git+https://github.com/novafacing/qemu-rs.git?branch=main#46b2a0acbec97372d939ce4a1f1f666922ad26f4"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -345,7 +345,7 @@ dependencies = [
 [[package]]
 name = "qemu-plugin-sys"
 version = "9.2.0-v0"
-source = "git+https://github.com/cpick/qemu-rs.git?branch=add-insn-read-data#96da31249eb56811192900584e4b18ea67ae2e21"
+source = "git+https://github.com/novafacing/qemu-rs.git?branch=main#46b2a0acbec97372d939ce4a1f1f666922ad26f4"
 dependencies = [
  "anyhow",
 ]

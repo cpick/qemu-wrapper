@@ -13,7 +13,6 @@ ctor = { version = "0.4.2", default-features = false, features = [
 ] }
 ffi = { version = "0.1.1", default-features = false }
 # FIXME: switch from `git =` to `version = "9.2.0-v0"` once it's published
-# https://github.com/novafacing/qemu-rs/pull/31
-qemu-plugin = { git = "https://github.com/cpick/qemu-rs.git", branch = "add-insn-read-data", features = [
+qemu-plugin = { git = "https://github.com/novafacing/qemu-rs.git", branch = "main", features = [
   "plugin-api-v4",
 ], default-features = false }
