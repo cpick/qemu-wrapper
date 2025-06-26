@@ -162,7 +162,7 @@ impl QemuWrapper {
         let (vm_close_on_ready_reader, vm_close_on_ready_writer) = pipe().context("pipe")?;
         // set FD_CLOEXEC so child doesn't inherit file descriptor
         fcntl(
-            vm_close_on_ready_reader.as_raw_fd(),
+            &vm_close_on_ready_reader,
             FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC),
         )
         .map(drop)
