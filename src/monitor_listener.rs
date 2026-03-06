@@ -56,7 +56,7 @@ impl Drop for MonitorListener {
 }
 
 impl AsFd for MonitorListener {
-    fn as_fd(&self) -> BorrowedFd {
+    fn as_fd(&self) -> BorrowedFd<'_> {
         self.listener.as_fd()
     }
 }
