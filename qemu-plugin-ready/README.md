@@ -13,7 +13,7 @@ In a parent/supervisor process, open a a `pipe()`, ensure its sender file descri
 close-on-exec, `fork()`, and have the child process `exec()` QEMU with the following option (replace
 ".dylib" with ".so" or ".dll" as appropriate for host operating system):
 ```sh
-qemu-system-x86_64 -plugin target/release/libqemu_plugin_ready.dylib,fd=<PIPE_SENDER_FD>
+qemu-system-x86_64 -plugin target/release/libqemu_plugin_ready.dylib,port=0xf5,fd=<PIPE_SENDER_FD>
 ```
 (The `-d plugin` option can be added to see a log message when the child is ready.) 
 
