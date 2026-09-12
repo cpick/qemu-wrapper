@@ -39,9 +39,13 @@ impl TerminalGuard {
             .as_fd()
             .try_clone_to_owned()
             .context("stdin fd try clone to owned")?;
+        Self::from_fd(terminal)
+    }
+
+    fn from_fd(terminal: OwnedFd) -> Result<Self> {
         let termios = match tcgetattr(&terminal) {
             Ok(termios) => termios,
-            Err(Errno::ENODEV) => return Ok(Self { state: None }),
+            Err(Errno::ENODEV | Errno::ENOTTY) => return Ok(Self { state: None }),
             Err(error) => return Err(Error::new(error).context("tcgetattr")),
         };
         let foreground_process_group = tcgetpgrp(&terminal).context("tcgetpgrp")?;
@@ -177,6 +181,28 @@ impl Drop for ResetGuard<'_, '_> {
         match self.reapply().context("reapply") {
             Ok(()) => (),
             Err(error) => eprintln!("Error: {} {error:?}", type_name::<Self>()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use nix::unistd::pipe;
+
+    #[test]
+    fn from_fd_non_tty() {
+        let (pipe, _writer) = pipe().expect("pipe");
+        let null = File::open("/dev/null").expect("open /dev/null");
+        let file = File::open("Cargo.toml").expect("open regular file");
+        for input in [pipe, null.into(), file.into()] {
+            let mut guard = TerminalGuard::from_fd(input).expect("terminal guard from fd");
+            assert!(guard.state.is_none());
+            guard.reset().expect("terminal guard reset");
+            guard
+                .signal_foreground_process_group(Signal::SIGINT)
+                .expect("terminal guard signal foreground process group");
         }
     }
 }
