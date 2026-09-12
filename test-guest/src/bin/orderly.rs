@@ -12,7 +12,7 @@ use core::{
     ptr::{self, NonNull},
 };
 use log::info;
-use uefi::{Status, entry, helpers, system, table::cfg};
+use uefi::{Status, entry, helpers, system, table::cfg::ConfigTableEntry};
 
 const PORT_DATA: u8 = {
     // must match qemu-wrapper's EXIT_CODE
@@ -78,7 +78,7 @@ fn main() -> Status {
     let rsdp_address = system::with_config_table(|configuration_table| {
         configuration_table
             .iter()
-            .find(|entry| entry.guid == cfg::ACPI2_GUID)
+            .find(|entry| entry.guid == ConfigTableEntry::ACPI2_GUID)
             .map(|entry| entry.address)
     })
     .expect("rsdp address");
