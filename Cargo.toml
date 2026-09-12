@@ -16,13 +16,13 @@ log = { version = "0.4.27", default-features = false, features = [
   "release_max_level_warn",
   "std",
 ] }
-nix = { version = "0.30.1", default-features = false, features = [
+nix = { version = "0.31.3", default-features = false, features = [
   "fs",
   "poll",
   "signal",
   "term",
 ] }
-signal-hook = { version = "0.3.17", default-features = false, features = [
+signal-hook = { version = "0.4.4", default-features = false, features = [
   "iterator",
 ] }
 
@@ -35,7 +35,11 @@ serde = { version = "1.0.219", default-features = false, features = [
   "std",
 ] }
 test-binary = { version = "3.0.2", default-features = false }
-toml = { version = "0.8.22", default-features = false, features = ["parse"] }
+toml = { version = "1.1.6", default-features = false, features = [
+  "parse",
+  "serde",
+  "std",
+] }
 which = { version = "8.0.0", default-features = false, features = ["real-sys"] }
 
 [patch.crates-io]
