@@ -17,18 +17,17 @@ use qemu_plugin::{
 };
 use std::{
     os::fd::{FromRawFd, OwnedFd},
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
 const TARGET: &str = "x86_64"; // must match OPCODE instruction set
-
-pub static FD: Mutex<Option<OwnedFd>> = Mutex::new(None);
 
 type OutbOpcode = [u8; 2];
 
 #[derive(Default)]
 struct Ready {
     opcode: OutbOpcode,
+    fd: Arc<Mutex<Option<OwnedFd>>>,
 }
 
 impl Ready {
@@ -42,6 +41,8 @@ impl Ready {
             info.target_name
         );
 
+        let mut port = None;
+        let mut fd = None;
         for (argument, value) in &arguments.parsed {
             let Value::Integer(value) = value else {
                 bail!("non-integer '{argument}' argument");
@@ -49,34 +50,37 @@ impl Ready {
 
             match argument.as_str() {
                 ARGUMENT_PORT => {
-                    ensure!(self.opcode[0] == 0, "duplicate '{argument}' argument");
+                    ensure!(port.is_none(), "duplicate '{argument}' argument");
 
-                    let port = u8::try_from(*value)
-                        .with_context(|| format!("'{argument}' argument too large or negative"))?;
-                    self.opcode = [0xe6 /* OUT */, port /* imm8 */]; // must match TARGET arch
+                    port =
+                        Some(u8::try_from(*value).with_context(|| {
+                            format!("'{argument}' argument too large or negative")
+                        })?);
                 }
                 ARGUMENT_FD => {
-                    let fd = i32::try_from(*value)
+                    ensure!(fd.is_none(), "duplicate '{argument}' argument");
+
+                    let value = i32::try_from(*value)
                         .with_context(|| format!("'{argument}' argument too large"))?;
-                    ensure!(!fd.is_negative(), "'{argument}' argument is negative");
-
-                    // SAFETY: caller is responsible for ensuring this is the correct file descriptor
-                    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-
-                    {
-                        let preexisting_fd = FD.lock().expect("lock fd").replace(fd).is_some();
-                        ensure!(!preexisting_fd, "duplicate '{argument}' argument");
-                    }
+                    ensure!(!value.is_negative(), "'{argument}' argument is negative");
+                    fd = Some(value);
                 }
                 argument => bail!("unknown '{argument}' argument"),
             }
         }
+        let port = port.context("missing '{ARGUMENT_PORT}' argument")?;
+        let fd = fd.context("missing '{ARGUMENT_FD}' argument")?;
 
-        ensure!(self.opcode[0] != 0, "missing '{ARGUMENT_PORT}' argument");
+        let mut self_fd = self.fd.lock().expect("lock fd");
         ensure!(
-            FD.lock().expect("lock fd").is_some(),
-            "missing '{ARGUMENT_FD}' argument"
+            self.opcode[0] == 0 && self_fd.is_none(),
+            "plugin already configured"
         );
+
+        // update `self` atomically now that success is assured
+        self.opcode = [0xe6 /* OUT */, port /* imm8 */]; // must match TARGET arch
+        // SAFETY: caller is responsible for ensuring this is the correct file descriptor
+        *self_fd = Some(unsafe { OwnedFd::from_raw_fd(fd) }); // must only take ownership on `Ok`
 
         Ok(())
     }
@@ -108,13 +112,16 @@ impl HasCallbacks for Ready {
                 let mut data: OutbOpcode = [0; 2];
                 (instruction.read_data(&mut data) == self.opcode.len()) && (data == self.opcode)
             })
-            .for_each(move |instruction| {
+            .for_each(|instruction| {
+                let fd = Arc::clone(&self.fd);
                 instruction.register_execute_callback(move |_vcpu| {
+                    // close fd to signal parent process
+                    if fd.lock().expect("lock fd").take().is_none() {
+                        return;
+                    }
+
                     qemu_plugin_outs("VM has signaled that it is ready\n")
                         .expect("qemu plugin outs");
-
-                    drop(FD.lock().expect("lock fd").take()); // close fd to signal parent process
-
                     qemu_plugin_uninstall(id, |_id| {}).expect("qemu plugin uninstall");
                 });
             });
@@ -128,7 +135,8 @@ qemu_plugin::register!(Ready::default());
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{Ready, TARGET};
+    use qemu_plugin::install::{Args, Info, Value, Version};
     use std::os::{fd::IntoRawFd, unix::net::UnixStream};
 
     #[test]
@@ -147,7 +155,7 @@ mod tests {
                 },
                 &Info {
                     target_name: TARGET.into(),
-                    version: qemu_plugin::Version {
+                    version: Version {
                         current: 4,
                         mininum: 4,
                     },
