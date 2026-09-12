@@ -10,13 +10,10 @@
 )]
 #![warn(clippy::pedantic)]
 
-use anyhow::{Context, Result, anyhow, bail, ensure};
-use ctor::ctor;
+use anyhow::{Context, Result, bail, ensure};
 use qemu_plugin::{
-    PluginId, TranslationBlock,
-    install::{Args, Info, Value},
-    plugin::{HasCallbacks, PLUGIN, Plugin, Register},
-    qemu_plugin_outs, qemu_plugin_uninstall,
+    Args, HasCallbacks, Info, PluginId, Register, TranslationBlock, Value, qemu_plugin_outs,
+    qemu_plugin_uninstall, register,
 };
 use std::{
     os::fd::{FromRawFd, OwnedFd},
@@ -34,8 +31,8 @@ struct Ready {
     opcode: OutbOpcode,
 }
 
-impl Register for Ready {
-    fn register(&mut self, _id: PluginId, arguments: &Args, info: &Info) -> Result<()> {
+impl Ready {
+    fn configure(&mut self, arguments: &Args, info: &Info) -> Result<()> {
         const ARGUMENT_PORT: &str = "port";
         const ARGUMENT_FD: &str = "fd";
 
@@ -85,8 +82,23 @@ impl Register for Ready {
     }
 }
 
+impl Register for Ready {
+    fn register(
+        &mut self,
+        _id: PluginId,
+        arguments: &Args,
+        info: &Info,
+    ) -> qemu_plugin::Result<()> {
+        self.configure(arguments, info).map_err(Into::into)
+    }
+}
+
 impl HasCallbacks for Ready {
-    fn on_translation_block_translate(&mut self, id: PluginId, tb: TranslationBlock) -> Result<()> {
+    fn on_translation_block_translate(
+        &mut self,
+        id: PluginId,
+        tb: TranslationBlock,
+    ) -> qemu_plugin::Result<()> {
         tb.instructions()
             .filter(|instruction| {
                 if instruction.size() != self.opcode.len() {
@@ -111,12 +123,4 @@ impl HasCallbacks for Ready {
     }
 }
 
-impl Plugin for Ready {}
-
-#[ctor]
-fn init() {
-    PLUGIN
-        .set(Mutex::new(Box::new(Ready::default())))
-        .map_err(|_| anyhow!("Failed to set plugin"))
-        .expect("Failed to set plugin");
-}
+register!(Ready::default());

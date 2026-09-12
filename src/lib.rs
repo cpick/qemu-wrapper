@@ -94,7 +94,7 @@ fn spawn_qemu_child(
                 "socket,id=mon0,path={},server=off",
                 listener
                     .to_str()
-                    .ok_or_else(|| anyhow!("invalid listener: '{listener:?}'"))?
+                    .ok_or_else(|| anyhow!("invalid listener: '{}'", listener.display()))?
             ),
             "-mon",
             "chardev=mon0",
@@ -105,7 +105,7 @@ fn spawn_qemu_child(
                 "{},port={ready_for_exit_signal_port},fd={}",
                 plugin
                     .to_str()
-                    .ok_or_else(|| anyhow!("invalid plugin: '{plugin:?}'"))?,
+                    .ok_or_else(|| anyhow!("invalid plugin: '{}'", plugin.display()))?,
                 vm_close_on_ready.as_raw_fd()
             ),
         ])
