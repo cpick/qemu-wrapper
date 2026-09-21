@@ -13,7 +13,7 @@
 use anyhow::{Context, Result, bail, ensure};
 use qemu_plugin::{
     Args, HasCallbacks, Info, PluginId, Register, TranslationBlock, Value, qemu_plugin_outs,
-    qemu_plugin_uninstall, register,
+    qemu_plugin_uninstall,
 };
 use std::{
     os::fd::{FromRawFd, OwnedFd},
@@ -123,4 +123,37 @@ impl HasCallbacks for Ready {
     }
 }
 
-register!(Ready::default());
+#[cfg(not(test))]
+qemu_plugin::register!(Ready::default());
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::{fd::IntoRawFd, unix::net::UnixStream};
+
+    #[test]
+    fn configure() {
+        let (_reader, writer) = UnixStream::pair().expect("socket pair");
+
+        Ready::default()
+            .configure(
+                &Args {
+                    raw: Vec::new(),
+                    parsed: [
+                        ("port".into(), Value::Integer(0xff)),
+                        ("fd".into(), Value::Integer(writer.into_raw_fd().into())),
+                    ]
+                    .into(),
+                },
+                &Info {
+                    target_name: TARGET.into(),
+                    version: qemu_plugin::Version {
+                        current: 4,
+                        mininum: 4,
+                    },
+                    system: None,
+                },
+            )
+            .expect("configure");
+    }
+}
