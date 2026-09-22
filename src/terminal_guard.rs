@@ -188,8 +188,8 @@ impl Drop for ResetGuard<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
     use nix::unistd::pipe;
+    use std::fs::File;
 
     #[test]
     fn from_fd_non_tty() {
