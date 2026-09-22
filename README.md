@@ -1,9 +1,9 @@
 # qemu-wrapper
 
-Wrap QEMU and convert a SIGINT (Ctrl+C) into a `system_poweroff`
+Wrap QEMU and convert a SIGINT (Ctrl+C) into a `system_powerdown`
 [monitor command](https://www.qemu.org/docs/master/system/monitor.html#commands).
 
-Without a preceeding `system_poweroff`, QEMU will flush its disks and halt the machine without
+Without a preceeding `system_powerdown`, QEMU will flush its disks and halt the machine without
 notifying the operating system.
 
 ## Building
